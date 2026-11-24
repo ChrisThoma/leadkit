@@ -1,0 +1,12 @@
+date	locale	storefront	phrase	source	popularity	typed	difficulty	in_field
+2026-10-28	en-US	us	row counter	seed	60	3	20	yes
+2026-10-28	en-US	us	knitting	seed	50	4	35	yes
+2026-10-28	en-US	us	stitch counter	seed	40	5	50	yes
+2026-10-28	en-US	us	crochet counter	seed	30	6	65	yes
+2026-10-28	de-DE	de	maschenzähler	seed	60	3	20	yes
+2026-10-28	de-DE	de	stricken app	seed	50	4	35	yes
+2026-10-28	de-DE	de	reihenzähler	seed	40	5	50	yes
+2026-10-28	ja	jp	編み物 カウンター	seed	60	3	20	yes
+2026-10-28	ja	jp	段数カウンター	seed	50	4	35	yes
+2026-10-28	fr-FR	fr	compteur de rangs	seed	60	3	20	yes
+2026-10-28	fr-FR	fr	tricot application	seed	50	4	35	yes

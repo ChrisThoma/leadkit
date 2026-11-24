@@ -1,0 +1,4 @@
+#!/bin/sh
+# The leadkit command. Linked into ~/.local/bin; resolves its own repo through the link.
+here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m leadkit.cli "$@"

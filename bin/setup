@@ -1,0 +1,4 @@
+#!/bin/sh
+# leads setup, for before `leads` is linked into ~/.local/bin.
+here=$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)
+PYTHONPATH="$here${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m leadkit.setup "$@"

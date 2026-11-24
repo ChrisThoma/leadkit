@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""Daily App Store sales by app, from App Store Connect's Sales and Trends reports.
+
+App Analytics hides campaign (ct=) rows until the counts are bigger, but the daily
+sales summary has no threshold. Lining its units up by day against what was posted
+is the best attribution there is at low volume.
+
+    asc-sales                   # the last 7 days, every app
+    asc-sales --days 14 --app Proofer
+    asc-sales --tsv             # tab-separated, for metrics.tsv
+
+Units are first-time downloads and in-app purchases. Updates (product type 7) are left
+out, and redownloads (type 3) aren't sales, so they get their own count: the last column
+of --tsv, and "+n redownloaded" in the plain output.
+
+Apple reports proceeds in the buyer's currency. The proceeds column is in dollars:
+foreign amounts are converted at today's rate (open.er-api.com, cached for the day),
+so it's close, not what Apple will pay. --tsv ends with the amounts per currency when
+a day has any that aren't dollars, then a sales column: what customers paid (Customer
+Price), in dollars the same way.
+
+Settings come from the environment, falling back to ~/.config/asc-sales/config.json
+(keys: key_id, issuer_id, vendor_number):
+  ASC_KEY_ID, ASC_ISSUER_ID   the API key the release scripts use; the .p8 is read
+                              from ~/.appstoreconnect/private_keys/AuthKey_<id>.p8
+  ASC_VENDOR_NUMBER           App Store Connect > Payments and Financial Reports,
+                              top left
+"""
+
+import argparse
+import csv
+import gzip
+import io
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import defaultdict
+from datetime import date, timedelta
+from pathlib import Path
+
+import jwt
+
+CONFIG_FILE = Path.home() / ".config" / "asc-sales" / "config.json"
+RATES_FILE = Path.home() / ".cache" / "asc-sales" / "rates.json"
+RATES_URL = "https://open.er-api.com/v6/latest/USD"
+
+# Product Type Identifier: 7, 7F, 7T, F7 are updates, not sales.
+UPDATES = {"7", "7F", "7T", "F7"}
+# 3, 3F, 3T, F3 are someone getting the app again. Apple counts them as units, with no
+# proceeds, so counting them as sales puts a day's total too high.
+REDOWNLOADS = {"3", "3F", "3T", "F3"}
+IAP = {"IA1", "IA9", "IAY", "IAC", "FI1"}
+
+
+def setting(env, key, config):
+    value = os.environ.get(env) or config.get(key)
+    if not value:
+        sys.exit(f"Missing {env}. Set it, or add \"{key}\" to {CONFIG_FILE}.")
+    return value
+
+
+def token(key_id, issuer):
+    key_path = Path.home() / ".appstoreconnect" / "private_keys" / f"AuthKey_{key_id}.p8"
+    now = int(time.time())
+    return jwt.encode(
+        {"iss": issuer, "iat": now, "exp": now + 1100, "aud": "appstoreconnect-v1"},
+        key_path.read_text(), algorithm="ES256", headers={"kid": key_id},
+    )
+
+
+def day_report(vendor, day, auth):
+    """Rows of the daily SALES SUMMARY for `day`, or [] if Apple has none."""
+    query = urllib.parse.urlencode({
+        "filter[frequency]": "DAILY", "filter[reportType]": "SALES",
+        "filter[reportSubType]": "SUMMARY", "filter[version]": "1_0",
+        "filter[vendorNumber]": vendor, "filter[reportDate]": day.isoformat(),
+    })
+    req = urllib.request.Request(
+        f"https://api.appstoreconnect.apple.com/v1/salesReports?{query}",
+        headers={"Authorization": f"Bearer {auth}", "Accept": "application/a-gzip"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            raw = gzip.decompress(resp.read()).decode("utf-8")
+    except urllib.error.HTTPError as err:
+        # 404 means no sales that day, or the report isn't out yet.
+        if err.code == 404:
+            return []
+        sys.exit(f"{day}: HTTP {err.code} {err.read().decode('utf-8', 'replace')[:300]}")
+    return list(csv.DictReader(io.StringIO(raw), delimiter="\t"))
+
+
+def summarize(reports, app=None):
+    """{(day, title): totals} from {day: report rows}, proceeds kept per currency."""
+    totals = defaultdict(lambda: {"units": 0, "proceeds": defaultdict(float), "sales": defaultdict(float), "countries": set(),
+                                  "kind": set(), "redownloads": 0})
+    for day, rows in reports.items():
+        for row in rows:
+            if row.get("Product Type Identifier") in UPDATES:
+                continue
+            title = row.get("Title", "?")
+            if app and app.lower() not in title.lower():
+                continue
+            units = int(float(row.get("Units") or 0))
+            if not units:
+                continue
+            t = totals[(day, title)]
+            if row.get("Product Type Identifier") in REDOWNLOADS:
+                t["redownloads"] += units
+                continue
+            t["units"] += units
+            currency = (row.get("Currency of Proceeds") or "").strip() or "USD"
+            t["proceeds"][currency] += units * float(row.get("Developer Proceeds") or 0)
+            paid = (row.get("Customer Currency") or "").strip() or "USD"
+            t["sales"][paid] += units * float(row.get("Customer Price") or 0)
+            t["countries"].add(row.get("Country Code", ""))
+            t["kind"].add("iap" if row.get("Product Type Identifier") in IAP else "app")
+    return totals
+
+
+def usd_rates():
+    """Units of each currency per dollar, fetched once a day. None if it can't be had."""
+    today = date.today().isoformat()
+    try:
+        cached = json.loads(RATES_FILE.read_text())
+        if cached.get("date") == today:
+            return cached["rates"]
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        with urllib.request.urlopen(RATES_URL, timeout=15) as resp:
+            rates = json.load(resp)["rates"]
+    except (OSError, ValueError, KeyError):
+        return None
+    RATES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    RATES_FILE.write_text(json.dumps({"date": today, "rates": rates}))
+    return rates
+
+
+def dollars(proceeds, rates):
+    """(dollar total, currencies left out for want of a rate)."""
+    total, unconverted = 0.0, []
+    for currency, amount in proceeds.items():
+        currency = currency.strip() or "USD"
+        if currency == "USD":
+            total += amount
+        elif not amount:
+            continue
+        elif rates and rates.get(currency):
+            total += amount / rates[currency]
+        else:
+            unconverted.append(currency)
+    return total, sorted(unconverted)
+
+
+def breakdown(proceeds):
+    """"USD 2.50, NOK 10.00", or "" when it's all dollars."""
+    if not set(proceeds) - {"USD"}:
+        return ""
+    order = sorted(proceeds, key=lambda c: (c != "USD", c))
+    return ", ".join(f"{c} {proceeds[c]:.2f}" for c in order if proceeds[c])
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--days", type=int, default=7, help="How many days back (default 7).")
+    parser.add_argument("--app", help="Only titles containing this (case-insensitive).")
+    parser.add_argument("--tsv", action="store_true", help="Print tab-separated rows.")
+    args = parser.parse_args()
+
+    config = json.loads(CONFIG_FILE.read_text()) if CONFIG_FILE.exists() else {}
+    auth = token(setting("ASC_KEY_ID", "key_id", config),
+                 setting("ASC_ISSUER_ID", "issuer_id", config))
+    vendor = setting("ASC_VENDOR_NUMBER", "vendor_number", config)
+
+    # Apple publishes a day's report the next day, Pacific time.
+    end = date.today() - timedelta(days=1)
+    days = [end - timedelta(days=i) for i in range(args.days)][::-1]
+
+    reports = {day: day_report(vendor, day, auth) for day in days}
+    totals = summarize(reports, args.app)
+    rates = usd_rates() if any((set(t["proceeds"]) | set(t["sales"])) - {"USD"} for t in totals.values()) else None
+
+    if args.tsv:
+        print("date\ttitle\tkind\tunits\tproceeds\tcountries\tredownloads\tproceeds_by_currency\tsales")
+    elif not totals:
+        print(f"No sales from {days[0]} to {days[-1]}.")
+    for (day, title), t in sorted(totals.items()):
+        countries = ",".join(sorted(c for c in t["countries"] if c))
+        kind = "+".join(sorted(t["kind"]))
+        usd, unconverted = dollars(t["proceeds"], rates)
+        split = breakdown(t["proceeds"])
+        if args.tsv:
+            print(f"{day}\t{title}\t{kind}\t{t['units']}\t{usd:.2f}\t{countries}\t{t['redownloads']}\t{split}\t{dollars(t['sales'], rates)[0]:.2f}")
+        else:
+            again = f"  +{t['redownloads']} redownloaded" if t["redownloads"] else ""
+            note = f"  ({split})" if split else ""
+            if unconverted:
+                note += f"  no rate for {', '.join(unconverted)}, left out"
+            print(f"{day}  {title:<40} {kind:<7} {t['units']:>3}  {usd:>7.2f}  {countries}{again}{note}")
+
+
+if __name__ == "__main__":
+    main()

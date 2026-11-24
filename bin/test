@@ -1,0 +1,4 @@
+#!/bin/sh
+# Run the tests against the fixture products in tests/fixtures, never your own data.
+here=$(cd "$(dirname "$0")/.." && pwd)
+cd "$here" && LEADKIT_DATA="$here/tests/fixtures" exec python3 -m unittest discover tests "$@"

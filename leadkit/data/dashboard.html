@@ -1,0 +1,1092 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>App Analytics</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --surface: #ffffff; --line: #d9d9d9; --grid: #ececec;
+  --text: #0b0b0b; --text-2: #52514e; --muted: #646464;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --other: #b5b3ad;
+  --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --mark: #52514e; --up: #0f7b3e; --down: #c2372f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #141414; --surface: #141414; --line: #2c2c2a; --grid: #252523;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #a09f98;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --other: #5c5b57;
+    --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+    --mark: #c3c2b7; --up: #3fbf6f; --down: #ef6b63;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141414; --surface: #141414; --line: #2c2c2a; --grid: #252523;
+  --text: #f0efec; --text-2: #c3c2b7; --muted: #a09f98;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --other: #5c5b57;
+    --s5: #d55181; --s6: #0ca30c; --s7: #9085e9; --s8: #e66767;
+  --mark: #c3c2b7; --up: #3fbf6f; --down: #ef6b63;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 20px 16px 48px; }
+header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+h1 { font-size: 20px; margin: 0; font-weight: 650; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; gap: 14px; }
+.seg button { border: 0; background: none; color: var(--text-2); font: inherit; font-size: 13px; padding: 4px 0; border-bottom: 2px solid transparent; cursor: pointer; }
+.seg button:hover { color: var(--text); }
+.seg button.on { border-color: var(--text); color: var(--text); font-weight: 600; }
+nav { display: flex; gap: 4px 18px; flex-wrap: wrap; margin-bottom: 28px; }
+nav button { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text-2); font: inherit; font-size: 13px;
+  padding: 4px 0; cursor: pointer; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+nav button:hover { color: var(--text); }
+nav button.on { border-color: var(--text); color: var(--text); font-weight: 600; }
+.card { margin: 0 0 44px; }
+.tiles { display: grid; grid-template-columns: repeat(5, 1fr); gap: 24px; margin-bottom: 44px; }
+.tiles .card { margin: 0; }
+.tile .label { color: var(--text-2); font-size: 12px; }
+.tile .value { font-size: 24px; font-weight: 620; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .delta { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.delta .up { color: var(--up); } .delta .down { color: var(--down); }
+.charts { position: relative; }
+.chart { position: relative; margin-bottom: 6px; }
+.chart h3 { margin: 0 0 4px; font-size: 13px; font-weight: 600; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.chart h3 .sub { font-weight: 400; color: var(--muted); }
+.chart h3 .num { font-weight: 620; font-variant-numeric: tabular-nums; }
+.chart + .chart { margin-top: 10px; }
+.navsep { width: 1px; background: var(--line); margin: 4px 0; }
+tr.link { cursor: pointer; }
+.chips { display: inline-flex; gap: 4px 16px; flex-wrap: wrap; }
+.chip { border: 0; border-bottom: 2px solid transparent; background: none; color: var(--text); font: inherit; font-size: 12px; padding: 3px 0; cursor: pointer; }
+.chip i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.chip:hover { border-color: var(--line); }
+.chip.off { color: var(--muted); }
+.chip.off i { background: none !important; box-shadow: inset 0 0 0 1.5px var(--other); }
+tr.link:hover td { text-decoration: underline; }
+.legend { display: inline-flex; gap: 12px; flex-wrap: wrap; font-weight: 400; color: var(--text-2); font-size: 12px; }
+nav i.sw { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+svg { display: block; width: 100%; overflow: visible; }
+svg text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 10px; font-size: 12px; min-width: 180px; max-width: 300px; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: none; z-index: 5; }
+.tip b { display: block; margin-bottom: 4px; }
+.tip .row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-2); }
+.tip .row span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }
+.tip .post { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); color: var(--text); }
+.tip .post > div { margin: 2px 0; }
+.grid2 { display: grid; grid-template-columns: 3fr 2fr; gap: 14px; margin-top: 14px; }
+.stack > .card:last-child { margin-bottom: 0; }
+tr:last-child > td { border-bottom: 0; }
+h2 { font-size: 17px; margin: 0 0 10px; font-weight: 620; }
+h2 .sub { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 6px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; border: 1px solid var(--line); }
+th:first-child, td:first-child { padding-left: 12px !important; }
+th:last-child, td:last-child { padding-right: 12px !important; }
+th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+th.sort { cursor: pointer; user-select: none; white-space: nowrap; }
+th.sort:hover, th.sort[aria-sort] { color: var(--text); }
+th .si { font-size: 9px; margin-left: 3px; }
+td { padding: 6px; border-bottom: 1px solid var(--grid); vertical-align: top; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td a { color: var(--text); }
+.lift { color: var(--muted); }
+.lift.up { color: var(--text); font-weight: 600; }
+.more { margin-top: 8px; border: 1px solid var(--line); background: none; color: var(--text-2); font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+td b { font-weight: 600; margin-right: 4px; }
+.day2 { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.day2 h3 { font-size: 13px; margin: 0 0 8px; font-weight: 600; }
+.hbar { display: grid; grid-template-columns: 130px 1fr 40px; gap: 10px; align-items: center; font-size: 13px; color: var(--text-2); margin-bottom: 6px; }
+.ht { height: 14px; display: block; }
+.ht i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.hv { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+@media (max-width: 820px) { .day2 { grid-template-columns: 1fr; } }
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+.btn:disabled { color: var(--muted); cursor: default; }
+.stale { font-size: 13px; font-weight: 620; color: var(--text); white-space: nowrap; }
+.synced { text-align: right; line-height: 1.3; max-width: 460px; }
+.synced .when { font-size: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.synced .when b { color: var(--text); font-weight: 620; }
+.synced .when .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: 1px; }
+.synced:not(.stale, .failed, .running) .when .dot { display: none; }
+.synced.stale .when .dot, .synced.failed .when .dot { background: var(--down); }
+.synced.stale .when b, .synced.failed .when b { color: var(--down); }
+.synced.running .when .dot { background: var(--s4); }
+.synced .thru { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+.empty { color: var(--muted); padding: 8px 0; }
+.tiles.four { grid-template-columns: repeat(4, 1fr); }
+.kind { display: inline-block; min-width: 96px; margin-right: 8px; color: var(--muted); white-space: nowrap; }
+.what { display: flex; flex-direction: column; gap: 3px; }
+.what .t { color: var(--text-2); }
+.what a { color: var(--text); text-decoration: none; border-bottom: 1px solid var(--line); }
+.what a:hover { border-color: var(--text-2); }
+.what .v { color: var(--muted); font-size: 12px; margin-left: 6px; font-variant-numeric: tabular-nums; }
+details.reps summary { cursor: pointer; color: var(--text-2); list-style: none; }
+details.reps summary::-webkit-details-marker { display: none; }
+details.reps summary::after { content: " ▸"; color: var(--muted); }
+details.reps[open] summary::after { content: " ▾"; }
+details.reps ul { margin: 4px 0 2px; padding-left: 18px; color: var(--text-2); }
+details.reps li { margin: 2px 0; }
+.lane-h { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin: 0 0 4px; font-size: 13px; font-weight: 600; }
+.chip.on { border-color: var(--text); font-weight: 600; }
+.dim { color: var(--muted); }
+.scroll { overflow-x: auto; }
+.controls { display: flex; gap: 10px 32px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.keyline { display: flex; gap: 12px; flex-wrap: wrap; margin: 0 0 6px; }
+.legend i.proj { background: none !important; border: 1.5px dashed var(--muted); width: 10px; height: 10px; }
+details.fold > summary { list-style: none; cursor: pointer; }
+details.fold > summary::-webkit-details-marker { display: none; }
+details.fold > summary h2 { display: flex; align-items: baseline; }
+details.fold > summary h2::before { content: "▾"; color: var(--muted); font-size: 12px; width: 16px; flex: none; }
+details.fold:not([open]) > summary h2 { margin: 0; }
+details.fold:not([open]) > summary h2::before { content: "▸"; }
+.ins { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.ins li { display: grid; grid-template-columns: 14px 1fr; gap: 6px; }
+.ins-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 8px 28px; }
+.ins-cols h4 { margin: 0 0 6px; font-size: 13px; font-weight: 620; }
+.ins .mk { font-size: 11px; line-height: 20px; color: var(--muted); }
+.ins .mk.k-down { color: var(--down); } .ins .mk.k-up { color: var(--up); }
+.ins .app { font-weight: 600; margin-right: 4px; }
+.ins .hint { color: var(--muted); font-size: 12px; }
+.call { font-size: 12px; color: var(--muted); }
+.call.keep { color: var(--up); font-weight: 600; } .call.weak { color: var(--down); }
+tr.base td { color: var(--muted); border-top: 1px solid var(--line); }
+.tiles.live { grid-template-columns: 1fr 1fr; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin-top: 6px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.kv > span:nth-child(odd) { color: var(--muted); }
+.kv > span:nth-child(even) { color: var(--text); }
+.kv .up { color: var(--up); } .kv .down { color: var(--down); }
+.chart h3 .sub .num { color: var(--text); }
+@media (max-width: 600px) { .tiles.live { grid-template-columns: 1fr; } }
+.live2 .nums { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 4px 0 6px; }
+.live2 .value { font-size: 30px; }
+.live2 .what2 { font-size: 13px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.live2 .what2 .up { color: var(--up); } .live2 .what2 .down { color: var(--down); }
+.few { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--text-2); }
+.few i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+details.how summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 8px; }
+details.how .note { margin-top: 4px; }
+.pc { display: flex; gap: 12px; align-items: baseline; min-width: 0; }
+.pc .ti { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.pc .ti a { color: var(--text); text-decoration: none; }
+.pc .ti a:hover { text-decoration: underline; }
+.pc .v { flex: none; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; margin: 0; }
+.pc .v a { color: var(--muted); }
+td.whatcell { width: 100%; max-width: 0; }
+.halves { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+@media (max-width: 820px) { .halves { grid-template-columns: 1fr; } }
+@media (max-width: 820px) {
+  .tiles, .tiles.four { grid-template-columns: repeat(2, 1fr); }
+  .grid2 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>App Store analytics</h1>
+    <span class="spacer"></span>
+    <div class="synced" id="synced"><div class="when"></div><div class="thru"></div></div>
+    <button class="btn" id="sync" hidden>Sync</button>
+    <span class="stale" id="stale" hidden>Code changed since this server started</span>
+    <button class="btn" id="restart" hidden title="Restart the dashboard server so code changes since it started take effect">Restart</button>
+    <div class="seg" id="range"></div>
+  </header>
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<script>
+const DATA = /*DATA*/null;
+const RANGES = [["1d", 1], ["7d", 7], ["14d", 14], ["30d", 30], ["90d", 90], ["All", 9999]];
+const APP_COLORS = [1, 2, 3, 4, 5, 6, 7, 8].map(i => `var(--s${i})`);
+const state = { app: null, range: 30 };
+try { Object.assign(state, JSON.parse(localStorage.getItem("leadkit-dash") || "{}")); } catch (e) {}
+const save = () => { try { localStorage.setItem("leadkit-dash", JSON.stringify(state)); } catch (e) {} };
+
+const fmt = n => n >= 10000 ? (n / 1000).toFixed(n >= 100000 ? 0 : 1).replace(/\.0$/, "") + "K" : Math.round(n).toLocaleString();
+const pct = (a, b) => b ? (100 * a / b).toFixed(a / b < 0.1 ? 1 : 0) + "%" : "–";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const addDays = (d, n) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const short = d => new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+
+function lastDay(a) {
+  // The newest day with App Store numbers; posts and sales can run a day or two ahead.
+  const ds = Object.keys(a.days).filter(d => a.days[d].impressions || a.days[d].page_views);
+  return ds.length ? ds[ds.length - 1] : Object.keys(a.days).pop();
+}
+function window_(a, n) {
+  const end = lastDay(a), first = Object.keys(a.days)[0];
+  let start = addDays(end, -(n - 1));
+  if (start < first) start = first;
+  const out = [];
+  for (let d = start; d <= end; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+// A change is only worth showing when the previous period is all inside the data.
+const covered = (a, prev) => prev[0] >= Object.keys(a.days)[0];
+const val = (a, d, k) => (a.days[d] || {})[k] || 0;
+const sum = (a, ds, k) => ds.reduce((t, d) => t + val(a, d, k), 0);
+const units = (a, d) => val(a, d, "units_ios") + val(a, d, "units_play");
+
+const period = () => state.range === 1 ? "the day before" : state.range < 9999 ? `the ${state.range} days before` : "before";
+function deltaHtml(now, before, what = period()) {
+  if (!before) return "";
+  const ch = (now - before) / before;
+  const cls = ch > 0.02 ? "up" : ch < -0.02 ? "down" : "";
+  return `<span class="${cls}">${ch > 0 ? "+" : ""}${Math.round(ch * 100)}%</span> vs ${what}`;
+}
+
+// ---- charts -------------------------------------------------------------
+let W = 1100; const PAD_L = 40, PAD_R = 1;
+function scaleX(ds) {
+  const step = (W - PAD_L - PAD_R) / ds.length;
+  return { step, x: i => PAD_L + step * i + step / 2, index: px => Math.floor((px - PAD_L) / step) };
+}
+function ticks(max) {
+  if (max <= 0) return [0, 1];
+  const raw = max / 3, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map(m => m * mag).find(s => s >= raw);
+  const out = []; for (let v = 0; v <= max + step * 0.001; v += step) out.push(v);
+  if (out[out.length - 1] < max) out.push(out[out.length - 1] + step);
+  return out;
+}
+function frame(ds, H, top, postDays, label = short, tickFmt = fmt, showX = true) {
+  const B = showX ? 18 : 4, sx = scaleX(ds), y = v => H - B - (H - B - 6) * v / top;
+  let g = "";
+  for (const t of H < 120 ? [0, top] : ticks(top)) {
+    if (t > top || (tickFmt === fmt && t % 1)) continue;  // counts get whole-number ticks only
+    g += `<line x1="${PAD_L}" x2="${W - PAD_R}" y1="${y(t)}" y2="${y(t)}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${PAD_L - 6}" y="${y(t) + 4}" text-anchor="end">${tickFmt(t)}</text>`;
+  }
+  g += `<rect x="${PAD_L}" y="${y(top)}" width="${W - PAD_R - PAD_L}" height="${y(0) - y(top)}" fill="none" stroke="var(--line)" stroke-width="1"/>`;
+  const every = Math.ceil(ds.length / 8);
+  if (showX) ds.forEach((d, i) => { if (i % every === 0) g += `<text x="${sx.x(i)}" y="${H - 3}" text-anchor="middle">${label(d)}</text>`; });
+  return { sx, y, g };
+}
+function lines(ds, series, H, postDays, tickFmt = fmt, showX = true) {
+  // series: [{vals, color}]. One series gets a wash under it; several are lines only.
+  const top = ticks(Math.max(1e-9, ...series.flatMap(s => s.vals))).pop();
+  const { sx, y, g } = frame(ds, H, top, postDays, short, tickFmt, showX);
+  let out = "";
+  if (series.length === 1) {
+    const v = series[0].vals;
+    out += `<path d="M${sx.x(0)},${y(0)} L${v.map((x, i) => `${sx.x(i)},${y(x)}`).join(" L")} L${sx.x(v.length - 1)},${y(0)} Z" fill="${series[0].color}" fill-opacity=".1"/>`;
+  }
+  for (const s of series)
+    out += `<polyline points="${s.vals.map((x, i) => `${sx.x(i)},${y(x)}`).join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  // Post days: a dot on the line, ringed so it reads over the wash.
+  ds.forEach((d, i) => { if (postDays.has(d)) out += `<circle cx="${sx.x(i)}" cy="${y(series[0].vals[i])}" r="3" fill="var(--mark)" stroke="var(--surface)" stroke-width="1.5"/>`; });
+  return `<svg viewBox="0 0 ${W} ${H}" style="height:${H}px" data-base="${y(0)}">${g}${out}<g class="hover"></g></svg>`;
+}
+const legend = (names, colors) => `<span class="legend">${names.map((n, i) => `<span><i style="background:${colors[i]}"></i>${esc(n)}</span>`).join("")}</span>`;
+
+// ---- views --------------------------------------------------------------
+function renderNav() {
+  const apps = DATA.apps, G = appGroups();
+  document.getElementById("nav").innerHTML =
+    (SERVED ? `<button data-app="live" class="${state.app === "live" ? "on" : ""}">Live · 24h</button>` : "") +
+    `<button data-app="sales" class="${state.app === "sales" ? "on" : ""}">Sales</button>` +
+    `<button data-app="ratings" class="${state.app === "ratings" ? "on" : ""}">Ratings</button>` +
+    `<button data-app="" class="${state.app ? "" : "on"}">All apps</button><span class="navsep"></span>` +
+    apps.map(a => `<button data-app="${a.id}" class="${state.app === a.id ? "on" : ""}"><i class="sw" style="background:${G.color(G.group(a.name))}"></i>${esc(a.name)}</button>`.replace("<button ", `<button title="${esc(a.name)}" `)).join("");
+  document.getElementById("range").hidden = ["live", "sales", "ratings"].includes(state.app);
+  document.getElementById("range").innerHTML = RANGES.map(([l, n]) => `<button data-n="${n}" class="${state.range === n ? "on" : ""}">${l}</button>`).join("");
+}
+
+// The five numbers every view charts, in this order.
+const METRICS = [
+  { k: "impressions", label: "Impressions" },
+  { k: "page_views", label: "Product page views" },
+  { k: "downloads", label: "First-time downloads" },
+  { k: "units", label: "Units sold" },
+  { k: "proceeds", label: "Sales", money: true },
+];
+const mfmt = (m, v) => m.money ? dollars(v) : fmt(v);
+const mval = (a, d, k) => k === "units" ? units(a, d) : val(a, d, k);
+const total = (apps, ds, k) => apps.reduce((t, a) => t + ds.reduce((s, d) => s + mval(a, d, k), 0), 0);
+
+// Colour follows the app everywhere, pinned by name so it never moves when the ranking
+// does. Apps not pinned take the next free slot in the order they first show up; past
+// eight, the rest are Other (grey).
+const PINNED = [];  // app names in the order their colours should go, e.g. ["My App", "Other App"]
+function appGroups() {
+  const earned = {}, seen = {};
+  for (const r of DATA.sales || []) { earned[r.app] = (earned[r.app] || 0) + r.p; if (!seen[r.app] || r.d < seen[r.app]) seen[r.app] = r.d; }
+  for (const a of DATA.apps) { earned[a.name] ??= 0; const d = Object.keys(a.days)[0]; if (d && (!seen[a.name] || d < seen[a.name])) seen[a.name] = d; }
+  const pin = n => { const i = PINNED.indexOf(n); return i < 0 ? 99 : i; };
+  const ranked = Object.keys(earned).sort((x, y) => pin(x) - pin(y) || (seen[x] || "9").localeCompare(seen[y] || "9") || x.localeCompare(y));
+  const named = ranked.slice(0, ranked.length > APP_COLORS.length ? APP_COLORS.length - 1 : APP_COLORS.length);
+  const groups = ranked.length > named.length ? [...named, "Other"] : named;
+  const group = n => named.includes(n) ? n : "Other";
+  // A store title ("Proofer: Sourdough Timer") to its app name, as mlog.app_of does.
+  const nameOf = t => { const h = String(t || "").split(":")[0].trim().toLowerCase(); return ranked.find(n => h.startsWith(n.toLowerCase())) || String(t || "").split(":")[0].trim(); };
+  return { earned, groups, group, nameOf, color: n => APP_COLORS[named.indexOf(n)] || "var(--other)" };
+}
+const swatch = (color, label) => `<span class="legend"><span><i style="background:${color}"></i>${label}</span></span>`;
+
+// Five charts on one time axis; dates only under the last. A change shows only when the
+// period before is all inside the data, and the note says once what it compares with.
+function metricCharts(ds, prev, seriesFor, totalFor, postDays, subs = {}, lane = "") {
+  const change = (now, before) => { if (!before) return ""; const c = (now - before) / before, cls = c > 0.02 ? "up" : c < -0.02 ? "down" : "";
+    return `<span class="sub delta"><span class="${cls}">${c > 0 ? "+" : ""}${Math.round(c * 100)}%</span></span>`; };
+  return `<div class="card charts" id="charts">${lane}${METRICS.map((m, i) => {
+    const now = totalFor(m.k, ds), last = i === METRICS.length - 1;
+    return `<div class="chart" data-k="${m.k}"><h3>${m.label}<span class="num">${mfmt(m, now)}</span>${prev ? change(now, totalFor(m.k, prev)) : ""}${subs[m.k] ? `<span class="sub">${subs[m.k]}</span>` : ""}</h3>
+      ${lines(ds, seriesFor(m.k), last ? 86 : 68, m.k === "page_views" ? postDays : new Set(), m.money ? moneyTick : fmt, last)}</div>`;
+  }).join("")}${prev ? `<p class="note" style="margin:8px 0 0">Changes are against ${period()}.</p>` : ""}<div class="tip" id="tip"></div></div>`;
+}
+
+function allWindow(n) {
+  const end = DATA.apps.map(lastDay).sort().pop(), first = DATA.apps.map(a => Object.keys(a.days)[0]).sort()[0];
+  const out = [];
+  for (let d = n >= 9999 || addDays(end, -(n - 1)) < first ? first : addDays(end, -(n - 1)); d <= end; d = addDays(d, 1)) out.push(d);
+  return { ds: out, first };
+}
+
+function overview() {
+  const { ds, first } = allWindow(state.range), n = ds.length, prev = ds.map(d => addDays(d, -n)), G = appGroups();
+  const apps = DATA.apps, full = prev[0] >= first;
+  // The chips switch apps off: their lines go, and they leave the total and the headers.
+  const hidden = state.hidden || [], vis = G.groups.filter(g => !hidden.includes(g));
+  const shown = apps.filter(a => vis.includes(G.group(a.name)));
+  const totalFor = (k, days) => total(shown, days, k);
+  const seriesFor = k => state.split
+    ? vis.map(g => ({ color: G.color(g), vals: ds.map(d => total(apps.filter(a => G.group(a.name) === g), [d], k)) }))
+    : [{ color: "var(--mark)", vals: ds.map(d => total(shown, [d], k)) }];
+  const chips = `<span class="chips">${G.groups.map(g => `<button data-chip="${esc(g)}" class="chip ${hidden.includes(g) ? "off" : ""}" aria-pressed="${!hidden.includes(g)}"><i style="background:${G.color(g)}"></i>${esc(g)}</button>`).join("")}</span>`;
+  const seg = `<div class="seg"><button data-split="" class="${state.split ? "" : "on"}">Total</button><button data-split="1" class="${state.split ? "on" : ""}">By app</button></div>`;
+  const top = n === 1
+    ? `<div class="tiles">${METRICS.map(m => `<div class="card tile"><div class="label">${m.label}</div><div class="value">${mfmt(m, totalFor(m.k, ds))}</div><div class="delta">${full ? deltaHtml(totalFor(m.k, ds), totalFor(m.k, prev)) : ""}</div></div>`).join("")}</div>`
+    : `<div class="controls">${seg}${chips}</div>` + metricCharts(ds, full ? prev : null, seriesFor, totalFor, new Set());
+  const rows = apps.map(a => ({ a, v: Object.fromEntries(METRICS.map(m => [m.k, total([a], ds, m.k)])) }))
+    .sort((x, y) => y.v.proceeds - x.v.proceeds || y.v.downloads - x.v.downloads);
+  const table = `<div class="card"><h2>By app</h2><div class="scroll"><table>
+    <tr><th>App</th>${METRICS.map(m => `<th class="n">${m.label.replace("Product page views", "Page views").replace("First-time downloads", "Downloads")}</th>`).join("")}<th class="n">Conversion</th></tr>
+    ${rows.map(({ a, v }) => `<tr class="link" data-app="${a.id}"><td><span class="legend"><span><i style="background:${G.color(G.group(a.name))}"></i>${esc(a.name)}</span></span></td>
+      ${METRICS.map(m => `<td class="n">${mfmt(m, v[m.k])}</td>`).join("")}<td class="n">${pct(v.downloads, v.impressions)}</td></tr>`).join("")}
+  </table></div></div>`;
+  const ins = apps.flatMap(a => (a.insights || []).map(x => ({ ...x, app: a.name }))).sort((x, y) => "dut".indexOf(x.kind[0]) - "dut".indexOf(y.kind[0]));
+  return top + table + `<div class="stack">${insightCard(ins, true)}${worksCard(DATA.works, "all apps")}</div>`;
+}
+
+// ---- what the numbers say: insights and what's working (insights.py) ----------
+const MARK = { down: "▼", up: "▲", tip: "" };
+function insightCard(list, withApp) {
+  const li = x => `<li><span class="mk k-${x.kind}">${MARK[x.kind]}</span><div>${esc(x.text)}${x.hint ? `<div class="hint">${esc(x.hint)}</div>` : ""}</div></li>`;
+  const top = list.slice(0, 8), by = {};
+  for (const x of top) (by[withApp ? x.app : ""] ||= []).push(x);
+  const body = withApp
+    ? `<div class="ins-cols">${Object.entries(by).map(([app, xs]) => `<div><h4>${esc(app)}</h4><ul class="ins">${xs.map(li).join("")}</ul></div>`).join("")}</div>`
+    : `<ul class="ins">${top.map(li).join("")}</ul>`;
+  return fold("changed", `What changed<span class="sub">last 14 days vs the 14 before</span>`,
+    top.length ? body : `<div class="empty">Nothing out of the ordinary in the last two weeks.</div>`);
+}
+// A card that folds to its title; open or shut is remembered per card.
+function fold(key, title, body, style = "") {
+  const shut = (state.folded || []).includes(key);
+  return `<details class="card fold" data-fold="${key}" ${shut ? "" : "open"} style="${style}"><summary><h2>${title}</h2></summary>${body}</details>`;
+}
+document.addEventListener("toggle", e => {
+  const k = e.target.dataset && e.target.dataset.fold; if (!k) return;
+  const f = new Set(state.folded || []); e.target.open ? f.delete(k) : f.add(k); state.folded = [...f]; save();
+}, true);
+const CALLS = { keep: "keep doing", weak: "no lift", mixed: "unclear", "too few": "too few days" };
+function worksCard(w, scope) {
+  if (!w || !w.rows.length) return "";
+  const x = v => v == null ? "–" : "×" + v.toFixed(1);
+  const few = w.rows.filter(r => r.call === "too few");
+  const rows = w.rows.filter(r => r.call !== "too few").map(r => `<tr${r.call === "too few" ? ' class="dim"' : ""}><td>${esc(r.type)}</td>
+    <td class="n">${r.days}</td><td class="n">${x(r.lift)}</td><td class="n">${r.extra > 0 ? "+" : ""}${fmt(r.extra)}</td><td class="n" data-v="${r.alone}">${r.alone}${r.alone_lift != null ? ` <span class="dim">${x(r.alone_lift)}</span>` : ""}</td>
+    <td class="n">${fmt(r.downloads)}</td><td class="n" data-v="${["too few", "weak", "mixed", "keep"].indexOf(r.call)}"><span class="call ${r.call === "too few" ? "" : r.call}">${CALLS[r.call]}</span></td></tr>`).join("");
+  const b = w.baseline;
+  const base = b ? `<tr class="base"><td>Nothing posted</td><td class="n">${b.days}</td><td class="n">${x(b.lift)}</td><td class="n"></td><td class="n"></td><td class="n">${fmt(b.downloads)}</td><td class="n"></td></tr>` : "";
+  return fold("works", `Lift by post type<span class="sub">${scope}, the last 90 days</span>`, `<div class="scroll"><table>
+    <tr><th>Post type</th><th class="n">Days</th><th class="n">Median lift</th><th class="n">Extra page views</th><th class="n" title="Days this was the only kind of post that went out">Only post that day</th><th class="n">Downloads</th><th class="n">Call</th></tr>${rows}${base}</table></div>
+    ${few.length ? `<p class="note few">Too few days to call: ${few.map(r => `<span>${esc(r.type)} ${x(r.lift)} <span class="dim">· ${plural(r.days, "day")} · ${r.extra > 0 ? "+" : ""}${fmt(r.extra)} views · ${fmt(r.downloads)} download${Math.round(r.downloads) === 1 ? "" : "s"}</span></span>`).join("")}</p>` : ""}
+    <details class="how"><summary>How lift is measured</summary><p class="note">Lift is page views that day and the next against the usual two days the week before, the median over the days that type went out.
+    When two types go out the same day (a Short and a Reel), both get that day's lift, so they can't be told apart. "Only post that day" counts the days a type went out with nothing else, and gives its lift there once there are 3 such days.
+    Keep doing: ×1.2 or more, and well above the days nothing went out. No lift: ×1.05 or less over 5+ days. Unclear: in between.</p></details>`);
+}
+
+// ---- one app: its numbers, and what went out on which day ------------------
+// Every post has a type; types fold into four groups for the lane. They get no colour:
+// colour on this page means an app.
+const PGROUPS = [
+  ["Videos", ["Short", "Reel", "TikTok", "YouTube video"]],
+  ["Posts", ["Threads post", "X post", "Reddit post"]],
+  ["Replies", ["Reddit reply", "Threads reply", "X reply"]],
+  ["Launches", ["Launch"]],
+];
+const pgroup = t => PGROUPS.find(g => g[1].includes(t)) || ["Other", []];
+const isReply = p => / reply$/.test(p.type);
+const plurals = t => /y$/.test(t) ? t.replace(/y$/, "ies") : t + "s";
+const badge = (t, n) => `<span class="kind">${esc(n > 1 ? `${n} ${plurals(t)}` : t)}</span>`;
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+// The posts lane: one row per group, a square on each day something of that kind went out
+// (darker for more), on the charts' own time axis so the hover line runs through it.
+function postLane(ds, posts) {
+  const groups = PGROUPS.filter(g => posts.some(p => g[1].includes(p.type)));
+  if (!groups.length) return "";
+  const RH = 15, H = groups.length * RH + 4, sx = scaleX(ds), sz = Math.max(3, Math.min(11, sx.step - 2));
+  const n = {}; for (const p of posts) { const k = p.date + "|" + pgroup(p.type)[0]; n[k] = (n[k] || 0) + 1; }
+  let g = "";
+  groups.forEach(([name], r) => {
+    const cy = 2 + r * RH + RH / 2;
+    g += `<text x="${PAD_L - 6}" y="${cy + 4}" text-anchor="end">${name}</text>`;
+    g += `<line x1="${PAD_L}" x2="${W - PAD_R}" y1="${cy}" y2="${cy}" stroke="var(--grid)" stroke-width="1"/>`;
+    ds.forEach((d, i) => { const c = n[d + "|" + name]; if (c) g += `<rect x="${sx.x(i) - sz / 2}" y="${cy - sz / 2}" width="${sz}" height="${sz}" rx="2" fill="var(--mark)" opacity="${c >= 3 ? 1 : c === 2 ? .75 : .5}"/>`; });
+  });
+  return `<div class="chart" data-k="posts"><div class="lane-h">Posted<span class="sub" style="font-weight:400;color:var(--muted)">stronger squares: more that day</span></div>
+    <svg viewBox="0 0 ${W} ${H}" style="height:${H}px" data-base="${H}">${g}<g class="hover"></g></svg></div>`;
+}
+
+function postLine(p) {
+  const nums = [+p.views ? `${fmt(+p.views)} views` : "", +p.likes ? `${fmt(+p.likes)} ${p.type === "Reddit post" ? "point" : "like"}${+p.likes === 1 ? "" : "s"}` : "", +p.replies ? plural(+p.replies, "comment") : ""].filter(Boolean).join(" · ");
+  const title = p.title || p.channel || "";
+  const txt = (p.ref ? `${p.ref} · ` : "") + title;
+  return `<div class="pc"><span class="ti" title="${esc(txt)}">${p.url ? `<a href="${esc(p.url)}" target="_blank">${esc(txt)}</a>` : esc(txt)}</span><span class="v">${esc(p.type)}${nums ? ` ${nums}` : ""}</span></div>`;
+}
+// One piece posted to several places (E53 as a Short and a Reel) is one line, with views for each place.
+function pieceLines(ps) {
+  const by = {}; for (const p of ps) (by[p.ref || p.url || p.title] ||= []).push(p);
+  return Object.values(by).map(list => list.length === 1 ? postLine(list[0]) : (() => {
+    const p0 = list[0], title = (p0.ref ? `${p0.ref} · ` : "") + (p0.title || "");
+    const per = list.map(p => `${p.url ? `<a href="${esc(p.url)}" target="_blank">${esc(p.type)}</a>` : esc(p.type)}${+p.views ? ` ${fmt(+p.views)}` : ""}`).join(" · ");
+    return `<div class="pc"><span class="ti" title="${esc(title)}">${esc(title)}</span><span class="v">${per}${list.some(p => +p.views) ? " views" : ""}</span></div>`;
+  })()).join("");
+}
+function replyGroup(type, list) {
+  const subs = [...new Set(list.map(p => p.channel).filter(c => c.startsWith("r/")))];
+  const head = `<span class="dim">${esc(list.length > 1 ? `${list.length} ${plurals(type)}` : type)}${subs.length ? " · " + esc(subs.slice(0, 3).join(", ")) + (subs.length > 3 ? ` +${subs.length - 3}` : "") : ""}</span>`;
+  return `<details class="reps"><summary>${head}</summary><ul>${list.map(p => `<li>${p.url ? `<a href="${esc(p.url)}" target="_blank">${esc(p.title || p.url)}</a>` : esc(p.title)}${p.channel.startsWith("r/") ? ` <span class="dim">${esc(p.channel)}</span>` : ""}${p.mentions === "app" ? ` <span class="dim">· named the app</span>` : ""}${p.about === "found" ? ` <span class="dim">· date is when found</span>` : ""}</li>`).join("")}</ul></details>`;
+}
+
+function appView(a) {
+  const ds = window_(a, state.range), n = ds.length, prev = ds.map(d => addDays(d, -n));
+  const posts = a.posts.filter(p => p.date >= ds[0] && p.date <= ds[n - 1]);
+  const t = k => total([a], ds, k), full = covered(a, prev);
+  if (state.ptype && !posts.some(p => p.type === state.ptype)) state.ptype = null;
+  let top;
+  if (n === 1) {
+    const tile = (label, v, sub) => `<div class="card tile"><div class="label">${label}</div><div class="value">${v}</div><div class="delta">${sub}</div></div>`;
+    const d = k => full ? deltaHtml(t(k), total([a], prev, k)) : "";
+    top = `<div class="tiles">${METRICS.map(m => tile(m.label, mfmt(m, t(m.k)), d(m.k))).join("")}</div>` + dayBreakdown(a, ds[0], posts);
+  } else {
+    const ac = appGroups().color(a.name);
+    top = metricCharts(ds, full ? prev : null, k => [{ color: ac, vals: ds.map(d => mval(a, d, k)) }], (k, days) => total([a], days, k), new Set(), {
+      downloads: `${pct(t("downloads"), t("impressions"))} of impressions`,
+      units: t("units_play") ? `iOS ${fmt(t("units_ios"))} · Play ${fmt(t("units_play"))}` : "",
+    }, postLane(ds, posts));
+  }
+
+  const days = {};
+  for (const p of posts) (days[p.date] ||= []).push(p);
+  const types = [...new Set(posts.map(p => p.type))].sort((x, y) => PGROUPS.findIndex(g => g[1].includes(x)) - PGROUPS.findIndex(g => g[1].includes(y)) || x.localeCompare(y));
+  const dayRows = Object.keys(days).sort().reverse().filter(d => !state.ptype || days[d].some(p => p.type === state.ptype)).map(d => {
+    const ps = days[d], p0 = ps[0];
+    const l = p0.base ? p0.after / p0.base : (p0.after ? Infinity : 1);
+    const pill = `<span class="lift ${l >= 1.5 ? "up" : ""}">${l === Infinity ? "from 0" : "×" + l.toFixed(1)}</span>`;
+    const reps = {}; for (const p of ps.filter(isReply)) (reps[p.type] ||= []).push(p);
+    const what = pieceLines(ps.filter(p => !isReply(p))) + Object.entries(reps).map(([ty, list]) => replyGroup(ty, list)).join("");
+    const dls = val(a, d, "downloads") + val(a, addDays(d, 1), "downloads");
+    return `<tr><td style="white-space:nowrap" data-v="${d}">${new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}</td><td class="whatcell"><div class="what">${what}</div></td>
+      <td class="n">${p0.after}</td><td class="n">${Math.round(p0.base)}</td><td class="n" data-v="${l === Infinity ? 999999999 : l}">${pill}</td><td class="n">${dls}</td></tr>`;
+  });
+  const shown = state.allPosts || (state.sorts || {})[DAY_TABLE] ? dayRows : dayRows.slice(0, 10);
+  const more = dayRows.length > 10 && !(state.sorts || {})[DAY_TABLE] ? `<button class="more" data-more="1">${state.allPosts ? "Show the last 10 days" : `Show all ${dayRows.length} days`}</button>` : "";
+  const chips = types.length > 1 ? `<div class="controls" style="margin-bottom:8px"><span class="chips"><button class="chip ${state.ptype ? "" : "on"}" data-ptype="">All</button>${types.map(ty => `<button class="chip ${state.ptype === ty ? "on" : ""}" data-ptype="${esc(ty)}">${esc(ty)}</button>`).join("")}</span></div>` : "";
+  const postTable = `<div class="card"><h2>Day by day<span class="sub">page views that day and the next, against the usual two days the week before</span></h2>
+    ${posts.length ? `${chips}<div class="scroll"><table><tr><th>Day</th><th>What went out</th><th class="n">Page views</th><th class="n">Usual</th><th class="n">Lift</th><th class="n">Downloads</th></tr>${shown.join("")}</table></div>${more}` : `<div class="empty">No posts in this range.</div>`}</div>`;
+
+  const ct = {};
+  for (const d of ds) for (const [c, m] of Object.entries(a.countries[d] || {})) {
+    const r = ct[c] ||= { impressions: 0, page_views: 0, downloads: 0 };
+    for (const k in r) r[k] += m[k] || 0;
+  }
+  const topC = Object.entries(ct).sort((x, y) => y[1].impressions - x[1].impressions).slice(0, 12);
+  const names = new Intl.DisplayNames(undefined, { type: "region" });
+  const cname = c => { try { return names.of(c); } catch (e) { return c; } };
+  const ctab = rows => `<table class="nosort"><tr><th>Country</th><th class="n">Impr.</th><th class="n">Page views</th><th class="n">Downloads</th><th class="n">Conv.</th></tr>
+    ${rows.map(([c, r]) => `<tr><td>${esc(cname(c))}</td><td class="n">${fmt(r.impressions)}</td><td class="n">${fmt(r.page_views)}</td><td class="n">${fmt(r.downloads)}</td><td class="n">${pct(r.downloads, r.impressions)}</td></tr>`).join("")}</table>`;
+  const half = Math.ceil(topC.length / 2);
+  const countryTable = `<div class="card"><h2>Countries<span class="sub">top ${topC.length} by impressions</span></h2>
+    <div class="halves">${ctab(topC.slice(0, half))}${topC.length > half ? ctab(topC.slice(half)) : ""}</div></div>`;
+
+  return top + `<div class="stack">${insightCard(a.insights || [], false)}${worksCard(a.works, a.name)}${postTable}${countryTable}</div>`;
+}
+
+// ---- sales: every app's sales over time, and where they're heading ----------
+const GRAINS = [["Day", "day"], ["Week", "week"], ["Month", "month"]];
+const SHOW = { day: [45, 14], week: [9999, 8], month: [9999, 2] };  // [past periods, future periods]
+const dollars = v => "$" + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const moneyTick = v => "$" + (v >= 10 || Number.isInteger(v) ? fmt(v) : v.toFixed(2));
+function periodOf(d, g) {
+  if (g === "day") return d;
+  if (g === "month") return d.slice(0, 8) + "01";
+  return addDays(d, -((new Date(d + "T00:00:00Z").getUTCDay() + 6) % 7));  // weeks start Monday
+}
+const periodNext = (p, g) => g === "day" ? addDays(p, 1) : g === "week" ? addDays(p, 7) : periodOf(addDays(p, 32), "month");
+const periodLabel = (p, g) => g !== "month" ? short(p)
+  : new Date(p + "T00:00:00Z").toLocaleDateString(undefined, { month: "short", timeZone: "UTC" }) + (p.slice(5, 7) === "01" ? " ’" + p.slice(2, 4) : "");
+function periodName(p, g) {
+  if (g === "day") return new Date(p + "T00:00:00Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+  if (g === "week") return `Week of ${short(p)}`;
+  return new Date(p + "T00:00:00Z").toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+}
+let SALES = null;
+const WHAT = { s: "Sales", p: "Proceeds", u: "Units" };
+const SUB = { s: "what customers paid, USD", p: "USD after Apple's and Google's cut", u: "iOS and Play, free apps included" };
+function salesModel() {
+  const g = state.grain || "week", m = state.metric || "p", rows = DATA.sales || [], pr = DATA.projection;
+  const through = DATA.sales_through, first = rows.reduce((t, r) => r.d < t ? r.d : t, through);
+  const { earned, groups, color, group } = appGroups();
+  const fc = (pr && pr[m] && pr[m].days) || [], sd = (pr && pr[m] && pr[m].sd) || 0, fcFrom = pr ? pr.from : addDays(through, 1);
+  const per = {};
+  for (const r of rows) { const k = periodOf(r.d, g), b = per[k] ||= {}; b[group(r.app)] = (b[group(r.app)] || 0) + r[m]; }
+  const last = periodOf(through, g), lastFc = addDays(fcFrom, fc.length - 1);
+  const periods = [];
+  for (let p = periodOf(first, g); p <= last; p = periodNext(p, g)) periods.push(p);
+  const past = periods.slice(-SHOW[g][0]);
+  let p = periodNext(last, g);
+  for (let i = 0; i < SHOW[g][1] && periodNext(p, g) <= addDays(lastFc, 1); i++, p = periodNext(p, g)) past.push(p);
+  const bars = past.map(p => {
+    const end = addDays(periodNext(p, g), -1), apps = per[p] || {};
+    const actual = Object.values(apps).reduce((t, v) => t + v, 0);
+    let proj = 0, n = 0;
+    for (let d = p > fcFrom ? p : fcFrom; d <= end; d = addDays(d, 1)) { const i = Math.round((new Date(d) - new Date(fcFrom)) / 864e5); if (i < fc.length) { proj += fc[i]; n++; } }
+    const band = 1.28 * sd * Math.sqrt(n);
+    return { p, end, apps, actual, proj, n, lo: Math.max(0, actual + proj - band), hi: actual + proj + band };
+  });
+  const sumDays = (from, to, k = m) => rows.filter(r => r.d >= from && r.d <= to).reduce((t, r) => t + r[k], 0);
+  const fcSum = (from, to) => { let t = 0, n = 0; for (let d = from; d <= to; d = addDays(d, 1)) { const i = Math.round((new Date(d) - new Date(fcFrom)) / 864e5); if (i >= 0 && i < fc.length) { t += fc[i]; n++; } } return [t, 1.28 * sd * Math.sqrt(n)]; };
+  const other = m === "u" ? null : m === "p" ? "s" : "p";  // the other money measure, drawn beside it
+  return { g, m, rows, through, first, groups, color, bars, sumDays, fcSum, fcFrom, earned, fc, sd, other, pr };
+}
+function salesView() {
+  if (!(DATA.sales || []).length) return `<p class="empty">No sales synced yet. Press Sync, or run <code>leads log sync</code>.</p>`;
+  const M = SALES = salesModel(), { g, m, bars, through } = M;
+  const money = m !== "u", f = money ? dollars : v => fmt(v);
+  const what = WHAT[m];
+  // tiles
+  const all = M.sumDays(M.first, through), d30 = M.sumDays(addDays(through, -29), through), d30b = M.sumDays(addDays(through, -59), addDays(through, -30));
+  const mStart = periodOf(through, "month"), mEnd = addDays(periodNext(mStart, "month"), -1);
+  const mtd = M.sumDays(mStart, through), [rest, restBand] = M.fcSum(addDays(through, 1), mEnd);
+  const [next30, band30] = M.fcSum(M.fcFrom, addDays(M.fcFrom, 29));
+  const monthName = new Date(mStart + "T00:00:00Z").toLocaleDateString(undefined, { month: "long", timeZone: "UTC" });
+  // Estimates are rounded to whole dollars (or units); the cents would be false precision.
+  const est = v => money ? "$" + Math.round(v).toLocaleString() : fmt(v);
+  const range = (v, b) => `${est(Math.max(0, v - b))} – ${est(v + b)}`;
+  // Each card: its number, then short labelled rows instead of a sentence.
+  const kv = rows => `<div class="kv">${rows.filter(Boolean).map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join("")}</div>`;
+  const tile = (label, v, rows) => `<div class="card tile"><div class="label">${label}</div><div class="value">${v}</div>${kv(rows)}</div>`;
+  const S = M.sumDays(M.first, through, "s"), P = M.sumDays(M.first, through, "p");
+  const ch = (n, b) => { const c = (n - b) / b; return `<span class="${c > 0.02 ? "up" : c < -0.02 ? "down" : ""}">${c > 0 ? "+" : ""}${Math.round(c * 100)}%</span>`; };
+  const tiles = `<div class="tiles four">
+    ${tile(`${what}, all time`, f(all), [
+      m !== "s" && ["Customers paid", dollars(S)],
+      m !== "p" && ["You kept", `${dollars(P)}${S ? ` <span class="dim">${pct(P, S)}</span>` : ""}`],
+      ["Since", short(M.first)]])}
+    ${tile("Last 30 days", f(d30), M.first <= addDays(through, -59) && d30b ? [["Change", ch(d30, d30b)], ["30 days before", f(d30b)]] : [])}
+    ${tile(`${monthName} so far`, f(mtd), mEnd > through ? [["On pace for", `<b>${est(mtd + rest)}</b>`], ["Likely", range(mtd + rest, restBand)]] : [["", "The whole month"]])}
+    ${tile("Next 30 days, projected", f(next30), [["Likely", range(next30, band30)]])}
+  </div>`;
+  // chart
+  const H = 220, ds = bars.map(b => b.p);
+  const top = ticks(Math.max(1e-9, ...bars.map(b => Math.max(b.actual + b.proj, b.n ? b.hi : 0)))).pop();
+  const fr = frame(ds, H, top, new Set(), p => periodLabel(p, g), money ? moneyTick : fmt), { sx, y } = fr;
+  const bw = Math.min(g === "day" ? 16 : 40, Math.max(3, sx.step - 4));
+  let svg = "", firstProj = bars.findIndex(b => b.n && !b.actual);
+  bars.forEach((b, i) => {
+    const x0 = sx.x(i) - bw / 2, segs = M.groups.map(n => [b.apps[n] || 0, M.color(n)]).filter(s => s[0] > 0);
+    let base = 0;
+    segs.forEach(([v, c], j) => {
+      const y0 = y(base) - (j ? 2 : 0), y1 = y(base + v), h = Math.max(1, y0 - y1), last = j === segs.length - 1 && !b.proj;
+      const r = last ? Math.min(4, bw / 2, h) : 0, t = y0 - h;
+      svg += r ? `<path d="M${x0},${y0} V${t + r} Q${x0},${t} ${x0 + r},${t} H${x0 + bw - r} Q${x0 + bw},${t} ${x0 + bw},${t + r} V${y0} Z" fill="${c}"/>` : `<rect x="${x0}" y="${t}" width="${bw}" height="${h}" fill="${c}"/>`;
+      base += v;
+    });
+    if (b.proj > 0) {
+      const y0 = y(base) - (base ? 2 : 0), t = y(base + b.proj), h = Math.max(1, y0 - t);
+      svg += `<rect x="${x0 + .75}" y="${y0 - h + .75}" width="${bw - 1.5}" height="${Math.max(0, h - 1.5)}" rx="${Math.min(4, bw / 2, h / 2)}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+      const cx = sx.x(i), cap = Math.min(6, bw / 3);
+      svg += `<g stroke="var(--muted)" stroke-width="1" opacity=".6"><line x1="${cx}" x2="${cx}" y1="${y(b.hi)}" y2="${y(b.lo)}"/><line x1="${cx - cap}" x2="${cx + cap}" y1="${y(b.hi)}" y2="${y(b.hi)}"/><line x1="${cx - cap}" x2="${cx + cap}" y1="${y(b.lo)}" y2="${y(b.lo)}"/></g>`;
+    }
+  });
+  if (firstProj > 0) { const x = sx.x(firstProj) - sx.step / 2; svg += `<line x1="${x}" x2="${x}" y1="4" y2="${H - 18}" stroke="var(--line)" stroke-width="1"/><text x="${x + 6}" y="14">Projected</text>`; }
+  const seg = (items, key, cur) => `<div class="seg">${items.map(([l, v]) => `<button data-${key}="${v}" class="${cur === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const controls = `<div class="controls">${seg(GRAINS, "grain", g)}${seg([["Sales", "s"], ["Proceeds", "p"], ["Units", "u"]], "metric", m)}</div>`;
+  const chart = `<div class="card charts" id="charts"><div class="chart"><h3>${what} per ${g} <span class="sub">${SUB[m]}</span>
+</h3><div class="keyline">${legend(M.groups, M.groups.map(M.color))}<span class="legend"><span><i class="proj"></i>Projected, with likely range</span></span></div>
+    <svg viewBox="0 0 ${W} ${H}" style="height:${H}px">${fr.g}${svg}<g class="hover"></g></svg></div><div class="tip" id="tip"></div></div>`;
+  // by app
+  const apps = Object.keys(M.earned).map(a => {
+    const r = M.rows.filter(x => x.app === a);
+    const s = k => r.reduce((t, x) => t + x[k], 0), s30 = k => r.filter(x => x.d > addDays(through, -30)).reduce((t, x) => t + x[k], 0);
+    return { a, u: s("u"), p: s("p"), s: s("s"), u30: s30("u"), p30: s30("p"), ios: r.filter(x => x.store === "iOS").reduce((t, x) => t + x.p, 0) };
+  }).sort((x, y) => y.p - x.p || y.u - x.u);
+  const allP = apps.reduce((t, x) => t + x.p, 0);
+  const table = `<div class="card"><h2>By app<span class="sub">all time and the last 30 days</span></h2><div class="scroll"><table>
+    <tr><th>App</th><th class="n">Units</th><th class="n">Sales</th><th class="n">Proceeds</th><th class="n">Kept</th><th class="n">Share</th><th class="n">Per unit</th><th class="n">Units, 30 days</th><th class="n">Proceeds, 30 days</th><th class="n">Play</th></tr>
+    ${apps.map(x => `<tr><td><span class="legend"><span><i style="background:${M.color(M.groups.includes(x.a) ? x.a : "Other")}"></i>${esc(x.a)}</span></span></td>
+      <td class="n">${fmt(x.u)}</td><td class="n">${dollars(x.s)}</td><td class="n">${dollars(x.p)}</td><td class="n">${x.s ? pct(x.p, x.s) : "–"}</td><td class="n">${pct(x.p, allP)}</td><td class="n">${x.u && x.p ? dollars(x.p / x.u) : "–"}</td>
+      <td class="n">${fmt(x.u30)}</td><td class="n">${dollars(x.p30)}</td><td class="n">${x.p - x.ios > 0.005 ? dollars(x.p - x.ios) : "–"}</td></tr>`).join("")}
+  </table></div></div>`;
+  return controls + tiles + cumulative(M) + chart + table + `<p class="note">Sales are what customers paid; proceeds are what you're paid after the store's cut and tax (Play's cut estimated at 15%).
+    Kept runs under 85% because Apple's prices include VAT outside the US: a €0.99 sale in Germany pays €0.71. Live shows sales.
+    Projection: the recent level plus the 8-week trend; the range holds about 8 times in 10.</p>`;
+}
+// The running total since the first sale, then the projection for the next 90 days with
+// its likely range (the band widens with √days, as in the bars).
+const AHEAD = 90;
+function cumulative(M) {
+  const f = M.m !== "u" ? dollars : v => fmt(v), per = {}, per2 = {};
+  for (const r of M.rows) { per[r.d] = (per[r.d] || 0) + r[M.m]; if (M.other) per2[r.d] = (per2[r.d] || 0) + r[M.other]; }
+  const ds = [], run = [], lo = [], hi = [];
+  let t = 0;
+  for (let d = M.first; d <= M.through; d = addDays(d, 1)) { t += per[d] || 0; ds.push(d); run.push(t); lo.push(t); hi.push(t); }
+  // The other money measure, past and projected, as a second line (no band, to keep it quiet).
+  const run2 = [], ofc = (M.other && M.pr && M.pr[M.other] && M.pr[M.other].days) || [];
+  if (M.other) { let t2 = 0; for (const d of ds) { t2 += per2[d] || 0; run2.push(t2); } }
+  const known = ds.length, start = Math.round((new Date(addDays(M.through, 1)) - new Date(M.fcFrom)) / 864e5);
+  for (let k = 0; k < AHEAD && start + k < M.fc.length; k++) {
+    t += M.fc[start + k];
+    const b = 1.28 * M.sd * Math.sqrt(k + 1);
+    ds.push(addDays(M.through, k + 1)); run.push(t); lo.push(Math.max(run[known - 1], t - b)); hi.push(t + b);
+    if (M.other) run2.push(run2[run2.length - 1] + (ofc[start + k] || 0));
+  }
+  const H = 180, top = ticks(Math.max(1e-9, ...hi, ...run2)).pop();
+  const fr = frame(ds, H, top, new Set(), short, M.m !== "u" ? moneyTick : fmt), { sx, y } = fr;
+  const pt = i => `${sx.x(i)},${y(run[i])}`, k0 = known - 1, end = ds.length - 1;
+  const idx = [...Array(ds.length).keys()];
+  const past = idx.slice(0, known), ahead = idx.slice(k0);
+  const pt2 = i => `${sx.x(i)},${y(run2[i])}`;
+  const second = M.other ? `<polyline points="${past.map(pt2).join(" ")}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    (end > k0 ? `<polyline points="${idx.slice(k0).map(pt2).join(" ")}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>` : "") : "";
+  const svg = `<path d="M${sx.x(0)},${y(0)} L${past.map(pt).join(" L")} L${sx.x(k0)},${y(0)} Z" fill="var(--text)" fill-opacity=".1"/>` +
+    (end > k0 ? `<path d="M${ahead.map(i => `${sx.x(i)},${y(hi[i])}`).join(" L")} L${ahead.reverse().map(i => `${sx.x(i)},${y(lo[i])}`).join(" L")} Z" fill="var(--text)" opacity=".13"/>` +
+      `<polyline points="${idx.slice(k0).map(pt).join(" ")}" fill="none" stroke="var(--text)" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>` +
+      `<line x1="${sx.x(k0)}" x2="${sx.x(k0)}" y1="4" y2="${y(0)}" stroke="var(--line)"/><text x="${sx.x(k0) + 6}" y="14">Projected</text>` : "") +
+    second + `<polyline points="${past.map(pt).join(" ")}" fill="none" stroke="var(--text)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>` +
+    `<circle cx="${sx.x(k0)}" cy="${y(run[k0])}" r="4" fill="var(--text)" stroke="var(--surface)" stroke-width="2"/>`;
+  CUM = { ds, run, lo, hi, known, f, run2, m: M.m, other: M.other };
+  const what = "Total " + WHAT[M.m].toLowerCase();
+  const key = M.other ? `<span class="legend"><span><i style="background:var(--text)"></i>${WHAT[M.m]}</span><span><i style="background:var(--muted)"></i>${WHAT[M.other]}</span></span>` : "";
+  const e = v => M.m !== "u" ? "$" + Math.round(v).toLocaleString() : fmt(v);
+  const proj = end > k0 ? `<span class="sub">By ${short(ds[end])}: <span class="num">${e(run[end])}</span> projected, likely ${e(lo[end])} – ${e(hi[end])}</span>` : "";
+  return `<div class="card charts" id="cumchart"><div class="chart"><h3>${what} over time<span class="num">${f(run[k0])}</span>${proj}${key}</h3>
+    <svg viewBox="0 0 ${W} ${H}" style="height:${H}px" data-base="${y(0)}">${fr.g}${svg}<g class="hover"></g></svg></div><div class="tip" id="cumtip"></div></div>`;
+}
+let CUM = null;
+function cumHover() {
+  const box = document.getElementById("cumchart"); if (!box || !CUM) return;
+  const tip = document.getElementById("cumtip"), svg = box.querySelector("svg"), sx = scaleX(CUM.ds);
+  box.onmouseleave = () => { tip.style.display = "none"; svg.querySelector(".hover").innerHTML = ""; };
+  box.onmousemove = e => {
+    const r = svg.getBoundingClientRect(), i = sx.index((e.clientX - r.left) * W / r.width);
+    if (i < 0 || i >= CUM.ds.length) return box.onmouseleave();
+    svg.querySelector(".hover").innerHTML = `<line x1="${sx.x(i)}" x2="${sx.x(i)}" y1="0" y2="${svg.dataset.base}" stroke="var(--text-2)" stroke-width="1"/>`;
+    const row = (l, v) => `<div class="row"><span>${l}</span><span>${v}</span></div>`;
+    tip.innerHTML = `<b>${new Date(CUM.ds[i] + "T00:00:00Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}</b>` +
+      (i < CUM.known ? row(CUM.other ? WHAT[CUM.m] + " so far" : "Total so far", CUM.f(CUM.run[i])) : row(CUM.other ? WHAT[CUM.m] + ", projected" : "Projected total", CUM.f(CUM.run[i])) + row("Likely", `${CUM.f(CUM.lo[i])}–${CUM.f(CUM.hi[i])}`)) +
+      (CUM.other ? row(WHAT[CUM.other] + (i < CUM.known ? " so far" : ", projected"), CUM.f(CUM.run2[i])) : "");
+    tip.style.display = "block";
+    const b = box.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - b.left + 14, b.width - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY - b.top + 14) + "px";
+  };
+}
+function salesHover() {
+  cumHover();
+  const box = document.getElementById("charts"); if (!box || !SALES) return;
+  const tip = document.getElementById("tip"), svg = box.querySelector("svg"), M = SALES, sx = scaleX(M.bars.map(b => b.p));
+  const f = M.m !== "u" ? dollars : v => fmt(v);
+  box.onmouseleave = () => { tip.style.display = "none"; svg.querySelector(".hover").innerHTML = ""; };
+  box.onmousemove = e => {
+    const r = svg.getBoundingClientRect(), i = sx.index((e.clientX - r.left) * W / r.width);
+    if (i < 0 || i >= M.bars.length) return box.onmouseleave();
+    const b = M.bars[i], x = sx.x(i);
+    svg.querySelector(".hover").innerHTML = `<rect x="${x - sx.step / 2}" y="0" width="${sx.step}" height="${r.height - 18}" fill="var(--text)" opacity=".04"/>`;
+    const row = (l, v) => `<div class="row"><span>${l}</span><span>${v}</span></div>`;
+    const apps = M.groups.filter(n => b.apps[n]).map(n => row(`<span class="legend"><span><i style="background:${M.color(n)}"></i>${esc(n)}</span></span>`, f(b.apps[n]))).join("");
+    tip.innerHTML = `<b>${periodName(b.p, M.g)}</b>` + apps +
+      (b.actual && (b.proj || Object.keys(b.apps).length > 1) ? row(b.proj ? "So far" : "Total", f(b.actual)) : "") + (!b.actual && !b.proj ? row("No sales", "") : "") +
+      (b.proj ? row(`Projected, ${b.n} day${b.n === 1 ? "" : "s"}`, f(b.proj)) + row("Likely total", `${f(b.lo)}–${f(b.hi)}`) : "");
+    tip.style.display = "block";
+    const bb = box.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - bb.left + 14, bb.width - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY - bb.top + 14) + "px";
+  };
+}
+
+function dayBreakdown(a, d, posts) {
+  // One day has no timeline: where its page views and downloads came from instead.
+  const cols = DATA.sources.map((s, i) => [s, "var(--mark)"]);
+  const block = (title, prefix) => {
+    const rows = cols.map(([s, c]) => [s, c, val(a, d, prefix + s)]);
+    const top = Math.max(1, ...rows.map(r => r[2]));
+    return `<div><h3>${title}</h3>${rows.map(([s, c, v]) => `<div class="hbar"><span class="hl">${esc(s)}</span>
+      <span class="ht"><i style="width:${v ? Math.max(2, 100 * v / top) : 0}%;background:${c}"></i></span><span class="hv">${v}</span></div>`).join("")}</div>`;
+  };
+  const list = posts.filter(p => p.date === d);
+  return `<div class="card"><h2>${new Date(d + "T00:00:00Z").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", timeZone: "UTC" })}<span class="sub">Apple's newest full day</span></h2>
+    <div class="day2">${block("Product page views by source", "pv:")}${block("First-time downloads by source", "dl:")}</div>
+    ${list.length ? `<div class="what" style="margin-top:12px">${list.map(postLine).join("")}</div>` : ""}</div>`;
+}
+
+function chartHover(ds, tipFor) {
+  const box = document.getElementById("charts"); if (!box) return;
+  const tip = document.getElementById("tip"), sx = scaleX(ds), svgs = [...box.querySelectorAll("svg")];
+  box.onmouseleave = () => { tip.style.display = "none"; svgs.forEach(s => s.querySelector(".hover").innerHTML = ""); };
+  box.onmousemove = e => {
+    const s0 = svgs[0].getBoundingClientRect();
+    const i = sx.index((e.clientX - s0.left) * W / s0.width);
+    if (i < 0 || i >= ds.length) return box.onmouseleave();
+    const x = sx.x(i), k = (e.target.closest(".chart") || {}).dataset?.k;
+    svgs.forEach(s => s.querySelector(".hover").innerHTML = `<line x1="${x}" x2="${x}" y1="0" y2="${s.dataset.base}" stroke="var(--text-2)" stroke-width="1"/>`);
+    tip.innerHTML = `<b>${new Date(ds[i] + "T00:00:00Z").toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" })}</b>` + tipFor(ds[i], k);
+    tip.style.display = "block";
+    const b = box.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - b.left + 14, b.width - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY - b.top + 14) + "px";
+  };
+}
+const trow = (l, v) => `<div class="row"><span>${l}</span><span>${v}</span></div>`;
+function tipPosts(ps) {
+  if (!ps.length) return "";
+  const reps = {}; for (const p of ps.filter(isReply)) reps[p.type] = (reps[p.type] || 0) + 1;
+  return `<div class="post">${ps.filter(p => !isReply(p)).map(p => `<div>${badge(p.type)}${esc(((p.ref ? p.ref + " · " : "") + (p.title || "")).slice(0, 60))}${+p.views ? ` · ${fmt(+p.views)} views` : ""}</div>`).join("")}
+    ${Object.entries(reps).map(([t, n]) => `<div>${badge(t, n)}</div>`).join("")}</div>`;
+}
+function appTip(a) {
+  const byDay = {}; for (const p of a.posts) (byDay[p.date] ||= []).push(p);
+  return d => METRICS.map(m => trow(m.label, mfmt(m, mval(a, d, m.k))) +
+      (m.k === "downloads" ? DATA.sources.filter(s => val(a, d, "dl:" + s)).map(s => trow("&nbsp;&nbsp;" + s, val(a, d, "dl:" + s))).join("") : "") +
+      (m.k === "units" && val(a, d, "units_play") ? trow("&nbsp;&nbsp;iOS · Play", `${val(a, d, "units_ios")} · ${val(a, d, "units_play")}`) : "")).join("") +
+    tipPosts(byDay[d] || []);
+}
+function overviewTip() {
+  const G = appGroups(), hidden = state.hidden || [], vis = G.groups.filter(g => !hidden.includes(g));
+  const apps = DATA.apps.filter(a => vis.includes(G.group(a.name)));
+  return (d, k) => METRICS.map(m => trow(m.k === k && state.split ? `<b style="display:inline;margin:0">${m.label}</b>` : m.label, mfmt(m, total(apps, [d], m.k))) +
+    (m.k === k && state.split ? vis.map(g => [g, total(apps.filter(a => G.group(a.name) === g), [d], m.k)]).filter(x => x[1])
+      .map(([g, v]) => trow(`&nbsp;&nbsp;<span class="legend"><span><i style="background:${G.color(g)}"></i>${esc(g)}</span></span>`, mfmt(m, v))).join("") : "")).join("");
+}
+
+function render() {
+  if (!DATA || !DATA.apps.length) { document.getElementById("main").innerHTML = `<p class="empty">No analytics yet. Run <code>leads dashboard --sync</code>.</p>`; return; }
+  if (state.app === "live" && !SERVED) state.app = null;
+  if (state.app && !["live", "sales", "ratings"].includes(state.app) && !DATA.apps.find(a => a.id === state.app)) state.app = null;
+  renderNav();
+  W = Math.max(320, document.getElementById("main").clientWidth);
+  if (state.app === "live") { document.title = "Live · App Analytics"; return renderLive(); }
+  if (state.app === "ratings") { document.title = "Ratings · App Analytics"; return renderRatings(); }
+  if (state.app === "sales") { document.title = "Sales · App Analytics"; document.getElementById("main").innerHTML = salesView(); return salesHover(); }
+  const a = DATA.apps.find(x => x.id === state.app);
+  document.getElementById("main").innerHTML = a ? appView(a) : overview();
+  if (a && state.range > 1) chartHover(window_(a, state.range), appTip(a));
+  if (!a && state.range > 1) chartHover(allWindow(state.range).ds, overviewTip());
+  document.title = a ? `${a.name} · App Analytics` : "App Analytics";
+}
+// ---- sortable tables ---------------------------------------------------------
+// Every table in the page sorts by a column when its header is clicked: numbers high to
+// low first, text A to Z, a second click flips it. A cell's data-v, when it has one, is
+// what it sorts by. "–" and empty cells go last either way; a "Nothing posted" baseline
+// row stays at the bottom. The pick is kept per table (by its headers) in state.sorts.
+const DAY_TABLE = "Day|What went out|Page views|Usual|Lift|Downloads";
+const tableKey = t => [...t.rows[0].cells].map(c => c.dataset.label ?? c.textContent.trim()).join("|");
+function cellValue(td) {
+  const raw = td.dataset.v ?? td.textContent.trim();
+  if (raw === "" || raw === "–") return null;
+  const m = raw.replace(/[$,×★+\s]|%$/g, "").match(/^(-?\d+(?:\.\d+)?)(K?)$/);
+  return m ? +m[1] * (m[2] ? 1000 : 1) : raw.toLowerCase();
+}
+function sortTables() {
+  const sorts = state.sorts || {};
+  for (const t of document.querySelectorAll("#main table")) {
+    if (t.classList.contains("nosort") || !t.rows.length || !t.rows[0].cells[0] || t.rows[0].cells[0].tagName !== "TH") continue;
+    const head = t.rows[0], key = tableKey(t), cur = sorts[key];
+    [...head.cells].forEach((th, i) => {
+      th.dataset.label ??= th.textContent.trim();
+      th.classList.add("sort");
+      th.querySelector(".si")?.remove();
+      th.removeAttribute("aria-sort");
+      if (cur && cur[0] === i) { th.setAttribute("aria-sort", cur[1] > 0 ? "ascending" : "descending"); th.insertAdjacentHTML("beforeend", `<span class="si">${cur[1] > 0 ? "▲" : "▼"}</span>`); }
+    });
+    if (!cur) continue;
+    const [col, dir] = cur, body = [...t.rows].slice(1), fixed = body.filter(r => r.classList.contains("base"));
+    const rows = body.filter(r => !fixed.includes(r)).map(r => [r, r.cells[col] ? cellValue(r.cells[col]) : null]);
+    rows.sort(([, a], [, b]) => a === null ? (b === null ? 0 : 1) : b === null ? -1
+      : typeof a !== typeof b ? (typeof a === "number" ? -1 : 1)
+      : dir * (typeof a === "number" ? a - b : a.localeCompare(b)));
+    const parent = body.length ? body[0].parentNode : head.parentNode;
+    for (const [r] of rows) parent.appendChild(r);
+    for (const r of fixed) parent.appendChild(r);
+  }
+}
+new MutationObserver(sortTables).observe(document.getElementById("main"), { childList: true });
+document.addEventListener("click", e => {
+  const th = e.target.closest("#main th");
+  if (th && !th.closest("table.nosort")) {
+    const t = th.closest("table"), i = th.cellIndex, key = tableKey(t), sorts = state.sorts ||= {}, cur = sorts[key];
+    if (cur && cur[0] === i) cur[1] = -cur[1];
+    else {
+      const vals = [...t.rows].slice(1).map(r => r.cells[i] ? cellValue(r.cells[i]) : null).filter(v => v !== null);
+      sorts[key] = [i, vals.filter(v => typeof v === "number").length > vals.length / 2 ? -1 : 1];
+    }
+    save();
+    if (key === DAY_TABLE) render(); else sortTables();
+    return;
+  }
+  if (e.target.closest("a")) return;
+  const t = e.target.closest("[data-app],[data-n],[data-more],[data-grain],[data-metric],[data-split],[data-chip],[data-ptype]"); if (!t || (e.target.closest("summary") && !t.dataset.ptype)) return;
+  if (t.dataset.ptype !== undefined) state.ptype = t.dataset.ptype || null;
+  else if (t.dataset.more) state.allPosts = !state.allPosts;
+  else if (t.dataset.chip !== undefined) { const h = new Set(state.hidden || []), c = t.dataset.chip; h.has(c) ? h.delete(c) : h.add(c); state.hidden = [...h]; }
+  else if (t.dataset.split !== undefined) state.split = !!t.dataset.split;
+  else if (t.dataset.grain) state.grain = t.dataset.grain;
+  else if (t.dataset.metric) state.metric = t.dataset.metric;
+  else if (t.dataset.n) state.range = +t.dataset.n; else state.app = t.dataset.app || null;
+  save(); render();
+});
+// ---- ratings --------------------------------------------------------------
+// DATA.ratings is the saved copy (marketing/ratings.json). Served, the tab asks /ratings,
+// which asks Apple again when the last fetch is over 30 minutes old; if that fails the
+// saved copy stays on screen.
+let ratingsAt = 0;
+async function renderRatings() {
+  const main = document.getElementById("main");
+  main.innerHTML = ratingsView();
+  if (!SERVED || Date.now() - ratingsAt < 300000) return;
+  try {
+    const r = await fetch("/ratings");
+    if (r.ok) { const d = await r.json(); if (d && d.apps) DATA.ratings = d; }
+  } catch (e) {}
+  ratingsAt = Date.now();
+  if (state.app === "ratings") main.innerHTML = ratingsView();
+}
+function ratingsView() {
+  // One row per app, the App Store and Google Play side by side; a Play app with no App
+  // Store twin gets a row of its own.
+  const R = DATA.ratings && (DATA.ratings.apps || DATA.ratings.play) ? DATA.ratings : { apps: {}, play: {} }, G = appGroups();
+  const rows = Object.values(R.apps || {}).map(a => ({ title: a.title, ios: a, play: null }));
+  for (const p of Object.values(R.play || {})) {
+    const row = rows.find(r => r.title === p.title);
+    if (row) row.play = p; else rows.push({ title: p.title, ios: null, play: p });
+  }
+  if (!rows.length) return `<p class="empty">No ratings yet${SERVED ? "; asking the stores…" : ". Run <code>leads dashboard --sync</code>."}</p>`;
+  rows.sort((x, y) => ((y.ios?.count || 0) + (y.play?.count || 0)) - ((x.ios?.count || 0) + (x.play?.count || 0)) || x.title.localeCompare(y.title));
+  const overall = list => { const r = list.filter(a => a && a.count), n = r.reduce((t, a) => t + a.count, 0);
+    return { n, apps: r.length, avg: n ? r.reduce((t, a) => t + a.avg * a.count, 0) / n : 0 }; };
+  const I = overall(rows.map(r => r.ios)), P = overall(rows.map(r => r.play));
+  const star = v => `${v.toFixed(2)} ★`;
+  const tile = (label, o, of) => `<div class="card tile"><div class="label">${label}</div>
+    <div class="value">${o.n ? star(o.avg) : "–"}</div><div class="delta">${o.n ? `${plural(o.n, "rating")} across ${o.apps} of ${of} apps` : "no ratings yet"}</div></div>`;
+  const tiles = `<div class="tiles four">${tile("App Store", I, rows.filter(r => r.ios).length)}${tile("Google Play", P, rows.filter(r => r.play).length)}</div>`;
+  const cell = a => a && a.count ? [`${a.avg.toFixed(1)}`, a.count] : a ? ["–", "–"] : ["", ""];
+  const table = `<div class="card"><table><tr><th>App</th><th class="n">App Store</th><th class="n">App Store ratings</th><th class="n">Google Play</th><th class="n">Play ratings</th></tr>
+    ${rows.map(r => { const [ia, ic] = cell(r.ios), [pa, pc] = cell(r.play);
+      return `<tr><td>${G.group(G.nameOf(r.title)) === "Other" ? esc(r.title) : swatch(G.color(G.group(G.nameOf(r.title))), esc(r.title))}</td><td class="n">${ia}</td><td class="n">${ic}</td><td class="n">${pa}</td><td class="n">${pc}</td></tr>`; }).join("")}</table></div>`;
+  const errs = (R.errors || []).length ? ` Couldn't read: ${esc(R.errors.join("; "))}.` : "";
+  return tiles + table + `<p class="note">App Store: every storefront, including stars left without a review. Google Play: the Play Console reviews export, which also counts stars without text; a blank means the app isn't on Play.${R.fetched ? ` Fetched ${new Date(R.fetched).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ET, timeZoneName: "short" })}.` : ""}${errs}</p>`;
+}
+
+// ---- served: live view, Sync, keep-alive ----------------------------------
+const SERVED = location.protocol.startsWith("http");
+let LIVE = null, liveAt = 0;
+const money = v => "$" + v.toFixed(2);
+const ET = "America/New_York";  // every time of day on the page is Eastern
+const hourLabel = iso => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", timeZone: ET });
+const etTime = iso => new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: ET, timeZoneName: "short" });
+async function loadLive(force) {
+  if (!force && LIVE && Date.now() - liveAt < 240000) return;
+  try { LIVE = await (await fetch("/live")).json(); } catch (e) { LIVE = { error: "failed", detail: "the dashboard server isn't answering" }; }
+  liveAt = Date.now();
+}
+async function renderLive() {
+  const main = document.getElementById("main");
+  if (!LIVE) main.innerHTML = `<p class="empty">Asking App Store Connect…</p>`;
+  await loadLive();
+  if (state.app !== "live") return;
+  if (LIVE.error === "signed_out") {
+    main.innerHTML = `<div class="card signin"><h2>App Store Connect needs you to sign in</h2>
+      <p>The live numbers come from App Store Connect's Trends page, which needs a web session, and it has run out.
+      In a terminal run <code>asc web auth login</code> (your password and a 2FA code), then come back here; the view retries every five minutes.</p>
+      <p class="note">${esc(LIVE.detail)}</p></div>`;
+    return;
+  }
+  if (LIVE.error) { main.innerHTML = `<div class="card"><h2>Couldn't read Trends</h2><p class="note">${esc(LIVE.detail)}</p></div>`; return; }
+  const hours = []; for (let t = new Date(LIVE.start); t <= new Date(LIVE.end); t = new Date(+t + 3600e3)) hours.push(t.toISOString().slice(0, 19) + "Z");
+  const G = appGroups();
+  const apps = LIVE.apps.map(a => ({ ...a, group: G.group(G.nameOf(a.title)), units: Object.values(a.hours).reduce((t, h) => t + h.units, 0), sales: Object.values(a.hours).reduce((t, h) => t + h.sales, 0) }))
+    .sort((x, y) => y.units - x.units || y.prev_units - x.prev_units);
+  const U = apps.reduce((t, a) => t + a.units, 0), S = apps.reduce((t, a) => t + a.sales, 0), P = apps.reduce((t, a) => t + (a.play_units || 0), 0);
+  const PU = apps.reduce((t, a) => t + a.prev_units, 0), PS = apps.reduce((t, a) => t + a.prev_sales, 0);
+  const per = hours.map(h => apps.reduce((t, a) => t + ((a.hours[h] || {}).units || 0), 0));
+  const perSales = hours.map(h => apps.reduce((t, a) => t + ((a.hours[h] || {}).sales || 0), 0));
+  const etDay = iso => new Date(iso).toLocaleDateString("en-CA", { timeZone: ET });
+  const today = etDay(new Date().toISOString()), todayHours = hours.filter(h => etDay(h) === today);
+  const sumToday = k => todayHours.reduce((t, h) => t + apps.reduce((s, a) => s + ((a.hours[h] || {})[k] || 0), 0), 0);
+  const TU = sumToday("units"), TS = sumToday("sales"), TP = sumToday("play");
+  // Two cards, today and the last 24 hours, each with sales and units side by side as
+  // headline numbers; a change sits under the number it belongs to.
+  const chg = (n, p) => { if (!p) return n ? "new" : ""; const c = (n - p) / p;
+    return `<span class="${c > 0.02 ? "up" : c < -0.02 ? "down" : ""}">${c > 0 ? "+" : ""}${Math.round(c * 100)}%</span>`; };
+  const pair = (label, sales, units, foot, sc = "", uc = "") => `<div class="card tile live2"><div class="label">${label}</div>
+    <div class="nums"><div><div class="value">${money(sales)}</div><div class="what2">sales${sc ? ` · ${sc}` : ""}</div></div>
+    <div><div class="value">${units}</div><div class="what2">${units === 1 ? "unit" : "units"}${uc ? ` · ${uc}` : ""}</div></div></div>
+    <div class="delta">${foot}</div></div>`;
+  const sold = apps.filter(a => a.units).length;
+  const tiles = `<div class="tiles live">
+    ${pair("Today, since midnight ET", TS, TU, TP ? `iOS ${TU - TP} · Play ${TP}` : "")}
+    ${pair("Last 24 hours", S, U, [P ? `iOS ${U - P} · Play ${P}` : "", `${sold} ${sold === 1 ? "app" : "apps"} sold`, PU || PS ? "changes vs the 24 hours before" : ""].filter(Boolean).join(" · "), chg(S, PS), chg(U, PU))}
+  </div>`;
+  const H = 150;
+  let sx;
+  // Each hour's bar stacks the apps in their own colours, in the same order as the legend.
+  const order = G.groups.flatMap(g => apps.filter(a => a.group === g));
+  const hourBars = (vals, k, tickFmt) => {
+    const top = ticks(Math.max(...vals, 1)).pop();
+    const f = frame(hours, H, top, new Set(), hourLabel, tickFmt), y = f.y;
+    sx = f.sx;
+    const bw = Math.min(24, Math.max(2, sx.step - 2));
+    const bars = hours.map((hr, i) => {
+      const x0 = sx.x(i) - bw / 2, segs = order.map(a => [(a.hours[hr] || {})[k] || 0, G.color(a.group)]).filter(x => x[0] > 0);
+      let base = 0, out = "";
+      segs.forEach(([v, c], j) => {
+        const y0 = y(base) - (j ? 2 : 0), h = Math.max(1, y0 - y(base + v)), t = y0 - h, r = j === segs.length - 1 ? Math.min(4, bw / 2, h) : 0;
+        out += r ? `<path d="M${x0},${y0} V${t + r} Q${x0},${t} ${x0 + r},${t} H${x0 + bw - r} Q${x0 + bw},${t} ${x0 + bw},${t + r} V${y0} Z" fill="${c}"/>` : `<rect x="${x0}" y="${t}" width="${bw}" height="${h}" fill="${c}"/>`;
+        base += v;
+      });
+      return out; }).join("");
+    return `<svg viewBox="0 0 ${W} ${H}" style="height:${H}px">${f.g}${bars}<g class="hover"></g></svg>`;
+  };
+  const unitsSvg = hourBars(per, "units", fmt), salesSvg = hourBars(perSales, "sales", moneyTick);
+  const soldG = G.groups.filter(g => apps.some(a => a.group === g && (a.units || a.sales)));
+  const key = legend(soldG, soldG.map(G.color));
+  const rows = apps.map(a => { const c = a.prev_units ? deltaHtml(a.units, a.prev_units, "").replace(/ vs $/, "") : (a.units ? "new" : "");
+    return `<tr><td>${swatch(G.color(a.group), esc(a.title))}</td><td class="n">${a.units}</td><td class="n">${a.play_units || ""}</td><td class="n">${money(a.sales)}</td><td class="n">${a.prev_units}</td><td class="n"${c === "new" ? ' data-v="999999999"' : ""}>${c}</td></tr>`; }).join("");
+  main.innerHTML = tiles + `<div class="card charts" id="charts">
+    <div class="chart"><h3>Units per hour <span class="sub">Eastern time</span>${key}</h3>${unitsSvg}</div>
+    <div class="chart"><h3>Sales per hour <span class="sub">customer price, USD</span></h3>${salesSvg}</div>
+    <div class="tip" id="tip"></div></div>
+    <div class="card"><h2>By app</h2><table><tr><th>App</th><th class="n">Units</th><th class="n">Play</th><th class="n">Sales</th><th class="n">24h before</th><th class="n">Change</th></tr>${rows}</table></div>
+    <p class="note">App Store Connect Trends and Google Play's sales report, updated ${etTime(LIVE.fetched)}. Units include Play; Play shows a column of its own.
+    ${LIVE.play_error ? `Play couldn't be read: ${esc(LIVE.play_error)}.` : `Google updates its Play report a few times a day${LIVE.play_updated ? `, last at ${etTime(LIVE.play_updated)}` : ""}: Play orders after that are in Play Console but not here yet.`}</p>`;
+  const box = document.getElementById("charts"), tip = document.getElementById("tip"), svgs = [...box.querySelectorAll("svg")];
+  box.onmouseleave = () => { tip.style.display = "none"; svgs.forEach(s => s.querySelector(".hover").innerHTML = ""); };
+  box.onmousemove = e => {
+    const r = svgs[0].getBoundingClientRect(), i = sx.index((e.clientX - r.left) * W / r.width);
+    if (i < 0 || i >= hours.length) return box.onmouseleave();
+    const h = hours[i], x = sx.x(i);
+    svgs.forEach(s => s.querySelector(".hover").innerHTML = `<line x1="${x}" x2="${x}" y1="0" y2="${H - 18}" stroke="var(--text-2)" stroke-width="1"/>`);
+    const sold = apps.filter(a => (a.hours[h] || {}).units);
+    tip.innerHTML = `<b>${new Date(h).toLocaleString(undefined, { weekday: "short", hour: "numeric", timeZone: ET, timeZoneName: "short" })}</b>` +
+      (sold.length > 1 ? `<div class="row"><span>All apps</span><span>${per[i]} · ${money(perSales[i])}</span></div>` : "") +
+      (sold.length ? sold.map(a => `<div class="row"><span>${swatch(G.color(a.group), esc(a.title.split(":")[0]))}${a.hours[h].play ? ` <span class="dim">(${a.hours[h].play} Play)</span>` : ""}</span><span>${a.hours[h].units} · ${money(a.hours[h].sales)}</span></div>`).join("") : `<div class="row"><span>No units</span><span></span></div>`);
+    tip.style.display = "block";
+    const b = box.getBoundingClientRect();
+    tip.style.left = Math.min(e.clientX - b.left + 14, b.width - tip.offsetWidth - 8) + "px";
+    tip.style.top = (e.clientY - b.top + 14) + "px";
+  };
+}
+// ---- last synced: when the last full sync finished, and how far each source reaches ----
+const STALE_HOURS = 26;  // the daily job runs at 3 a.m.; past this a run was missed
+function syncedWhen(iso) {
+  const t = new Date(iso), now = new Date();
+  const day = d => d.toLocaleDateString("en-CA", { timeZone: ET });
+  const time = t.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", timeZone: ET });
+  const yest = day(new Date(+now - 864e5));
+  const d = day(t) === day(now) ? "today" : day(t) === yest ? "yesterday"
+    : t.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", timeZone: ET });
+  const h = (now - t) / 36e5;
+  const ago = h < 1 ? `${Math.max(1, Math.round(h * 60))} min ago` : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`;
+  return { text: `${d} ${time}`, ago, stale: h > STALE_HOURS };
+}
+function showSynced(st = {}) {
+  const box = document.getElementById("synced"), when = box.querySelector(".when"), thru = box.querySelector(".thru");
+  const apple = DATA && DATA.apps.length ? DATA.apps.map(lastDay).sort().pop() : "";
+  const parts = [apple && `App Store through ${short(apple)}`, DATA && DATA.sales_through && `sales through ${short(DATA.sales_through)}`].filter(Boolean);
+  box.className = "synced";
+  if (st.running) {
+    box.classList.add("running");
+    when.innerHTML = `<span class="dot"></span><b>Syncing…</b>`;
+    thru.textContent = st.lines.slice(-1)[0] || "Starting…";
+    return;
+  }
+  const w = DATA && DATA.synced ? syncedWhen(DATA.synced) : null;
+  if (st.error) {
+    box.classList.add("failed");
+    when.innerHTML = `<span class="dot"></span><b>Sync failed</b>${w ? ` · last good ${esc(w.text)}` : ""}`;
+    when.title = st.error;
+    thru.textContent = st.error;
+    return;
+  }
+  if (!w) { when.innerHTML = `<span class="dot"></span><b>Never synced</b>`; box.classList.add("stale"); }
+  else {
+    if (w.stale) box.classList.add("stale");
+    when.innerHTML = `<span class="dot"></span>Synced <b>${esc(w.text)}</b> · ${esc(w.ago)}`;
+    when.title = new Date(DATA.synced).toLocaleString(undefined, { dateStyle: "full", timeStyle: "short", timeZone: ET });
+  }
+  thru.textContent = parts.join(" · ");
+}
+showSynced();
+setInterval(() => { if (!document.getElementById("sync").disabled) showSynced(); }, 60000);
+if (SERVED) {
+  const btn = document.getElementById("sync");
+  btn.hidden = false;
+  const show = st => {
+    btn.disabled = st.running;
+    btn.textContent = st.running ? "Syncing…" : "Sync";
+    showSynced(st);
+  };
+  const poll = async () => { const st = await (await fetch("/sync")).json(); show(st); if (st.running) setTimeout(poll, 2000); else if (btn.dataset.was) { delete btn.dataset.was; location.reload(); } };
+  btn.onclick = async () => { btn.dataset.was = "1"; show(await (await fetch("/sync", { method: "POST", headers: { "X-Leadkit": "1" } })).json()); setTimeout(poll, 1500); };
+  fetch("/sync").then(r => r.json()).then(st => { show(st); if (st.running) { btn.dataset.was = "1"; poll(); } });
+  // Restart: the server swaps itself for a fresh process; wait until it answers, then reload.
+  const rb = document.getElementById("restart");
+  rb.hidden = false;
+  rb.onclick = async () => {
+    rb.disabled = true; rb.textContent = "Restarting…";
+    let r = null;
+    try { r = await fetch("/restart", { method: "POST", headers: { "X-Leadkit": "1" } }); } catch (e) {}
+    if (!r || !r.ok) {
+      const why = r && r.status === 409 ? "wait for the sync to finish" : r ? "this server is older than the button; run leads dashboard again" : "the server didn't answer";
+      rb.textContent = "Restart"; rb.disabled = false; rb.title = "Couldn't restart: " + why;
+      document.querySelector("#synced .thru").textContent = "Couldn't restart: " + why;
+      return;
+    }
+    await new Promise(ok => setTimeout(ok, 800));
+    for (let i = 0; i < 40; i++) {
+      try { if ((await fetch("/ping", { cache: "no-store" })).ok) return location.reload(); } catch (e) {}
+      await new Promise(ok => setTimeout(ok, 500));
+    }
+    rb.textContent = "Restart"; rb.disabled = false;
+    document.querySelector("#synced .thru").textContent = "The server didn't come back; run leads dashboard";
+  };
+  // Say when the code on disk is newer than this server, so nobody debugs old code.
+  const checkCode = async () => {
+    let v = null;
+    try { v = await (await fetch("/version", { cache: "no-store" })).json(); } catch (e) { return; }
+    const note = document.getElementById("stale");
+    if (!v || !v.changed || !v.changed.length) { note.hidden = true; return; }
+    note.hidden = false;
+    note.title = "Changed: " + v.changed.join(", ");
+  };
+  checkCode();
+  setInterval(() => { fetch("/ping").catch(() => {}); checkCode(); }, 60000);
+  setInterval(() => { if (state.app === "live") { loadLive(true).then(renderLive); } }, 300000);
+}
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(render, 150); });
+render();
+</script>
+</body>
+</html>

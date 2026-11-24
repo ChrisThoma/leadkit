@@ -1,0 +1,11 @@
+{
+  "name": "leadkit",
+  "owner": { "name": "leadkit" },
+  "plugins": [
+    {
+      "name": "leadkit",
+      "source": "./plugin",
+      "description": "Skills that run leadkit: leads passes, audience studies, pitch passes and App Store keyword work."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.DS_Store
+# Your data belongs in ~/leadkit-data ($LEADKIT_DATA), never here. These catch
+# it if it lands in the checkout by mistake.
+/settings.py
+/products/
+/marketing/
+/*.tsv
+.asc/
