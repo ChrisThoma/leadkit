@@ -19,7 +19,7 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import analytics, insights, live, mlog, posts as reddit_posts, product, ratings, stats, tsv
+from . import analytics, aso, eastern, insights, live, mlog, posts as reddit_posts, product, ratings, stats, tsv
 
 TEMPLATE = Path(__file__).parent / "data" / "dashboard.html"
 OUT = Path.home() / "Library" / "Caches" / "leadkit" / "dashboard.html"
@@ -181,12 +181,37 @@ def sales_projection(sales, through):
             "s": projection(paid)}
 
 
+def store_projections(sales, through):
+    """sales_projection() for both stores together, with each store's own under "stores".
+    The level is a median, so the stores' forecasts don't add up to the combined one."""
+    both = sales_projection(sales, through)
+    if both:
+        both["stores"] = {s: sales_projection([r for r in sales if r["store"] == s], through) for s in ("iOS", "Play")}
+    return both
+
+
+def waiting(app_list, shown, apps):
+    """Leadkit's apps that Apple hasn't sent an analytics report for yet (a new app on its
+    launch day), so the page can list them before their first numbers arrive."""
+    out = []
+    for app_id, title in app_list:
+        name = mlog.app_of(title, apps)
+        if app_id not in shown and name in apps:
+            out.append({"id": app_id, "name": name, "title": title})
+    return out
+
+
 def build(app_list=None, raw=None):
     apps = [p.title for p in product.everything()]
     sales = mlog._read(mlog.SALES, mlog.SALES_FIELDS)
     posts = mlog._read(mlog.POSTS, mlog.POST_FIELDS)
+    # The Sales tab is in Eastern days; each app's own page keeps the stores' days, like Apple's analytics.
+    saved = eastern.load()
+    through = eastern.through(sales, saved["fetched"])
+    by_day = eastern.rows(sales, saved["rows"], through)
     out = []
-    for app_id, title in (app_list or analytics.apps()):
+    app_list = app_list or analytics.apps()
+    for app_id, title in app_list:
         a = app_data(app_id, title, apps, sales, posts, raw, extra_posts(mlog.app_of(title, apps)))
         if not any(k for v in a["days"].values() for k in v):
             continue
@@ -196,13 +221,17 @@ def build(app_list=None, raw=None):
         a["insights"] = insights.insights(a, a["works"])
         out.append(a)
     out.sort(key=lambda a: -sum(v.get("downloads", 0) for v in a["days"].values()))
-    return {"built": date.today().isoformat(), "synced": last_synced(), "apps": out, "works": insights.what_works(out), "sources": list(SOURCES) + ["Other"],
+    return {"built": date.today().isoformat(), "synced": last_synced(), "apps": out,
+            "waiting": waiting(app_list, {a["id"] for a in out}, apps), "works": insights.what_works(out), "sources": list(SOURCES) + ["Other"],
             "ratings": ratings.load(),  # the saved copy; the served page asks /ratings for a fresh one
-            "sales_through": max((r["date"] for r in sales), default=""),
-            "projection": sales_projection(sales, max((r["date"] for r in sales), default="")),
+            # Each product's newest App Store search ranks (the Keywords tab).
+            "ranks": [{"app": p.title, **r} for p in product.everything() for r in aso.rankings(p)],
+            "sales_through": through,
+            "eastern_from": eastern.first_day(saved["rows"]),
+            "projection": store_projections(by_day, through),
             # Every app's sales, including ones with no analytics yet (the Sales tab).
             "sales": [{"d": r["date"], "app": r["app"], "store": r["store"], "u": int(r["units"] or 0),
-                       "p": float(r.get("proceeds") or 0), "s": float(r.get("sales") or 0)} for r in sales]}
+                       "p": float(r.get("proceeds") or 0), "s": float(r.get("sales") or 0)} for r in by_day]}
 
 
 def sync_commit():

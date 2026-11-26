@@ -7,8 +7,9 @@
     bin/setup                        # the same, before `leads` is linked
 
 What it sets up on the Mac: your data folder (~/leadkit-data, or $LEADKIT_DATA)
-with settings.py, the `leads`, `aso`, `asc-sales` and `play-sales` commands in
-~/.local/bin, and the daily launchd job that runs `aso check --all`. For each product it checks the
+with settings.py, the `leads`, `aso`, `replies`, `asc-sales` and `play-sales`
+commands in ~/.local/bin, and the daily Threads insights job. Keyword ranks run on
+demand. For each product it checks the
 config, the repo and the leads folder, and says which aso step comes next. It
 never starts a long run (a rank check, keyword fields for 40 languages); those
 are printed as next steps with how long they take.
@@ -24,7 +25,7 @@ from . import aso, aso_cli, aso_export, aso_locales, aso_review, product, thread
 from .product import settings
 
 BIN = Path.home() / ".local" / "bin"
-COMMANDS = ["leads", "aso", "asc-sales", "play-sales"]
+COMMANDS = ["leads", "aso", "replies", "asc-sales", "play-sales"]
 PLIST = Path.home() / "Library" / "LaunchAgents" / f"{aso.LABEL}.plist"
 LOG = Path.home() / "Library" / "Logs" / "leadkit-aso.log"
 # A rank check spaces Search API calls 3 s apart, plus suggestions: 23 keywords took about 3 minutes.
@@ -96,13 +97,12 @@ def machine_steps():
 
     state, info = daily_state(PLIST, product.HOME, Path(sys.executable))
     install = lambda at=daily_time(PLIST): aso_cli.daily(at, False)  # noqa: E731
-    if state == "ok" and loaded():
+    if state == "missing":
+        steps.append(Step("ok", "keyword ranks are checked on demand (`aso check --all`)"))
+    elif state == "ok" and loaded():
         steps.append(Step("ok", f"daily keyword check (launchd) at {info}, log: {LOG}"))
     elif state == "ok":
         steps.append(Step("todo", "the daily keyword check is installed but not loaded", install))
-    elif state == "missing":
-        steps.append(Step("todo", "the daily keyword check isn't installed (`aso check --all` every day at "
-                                  "09:15; change it with `aso daily --at HH:MM`)", install))
     else:
         steps.append(Step("todo", f"the daily keyword check {info}", install))
 
@@ -213,7 +213,7 @@ def product_steps(p):
         say("ok", f"keyword ranks for {len(keywords)} keywords, last checked {last}")
     else:
         say("next", f"first rank check: `aso check -p {p.name}` ({minutes(len(keywords) * SECONDS_PER_KEYWORD)}); "
-                    "the daily job does it after that")
+                    "`aso check --all` covers it after that")
     if not aso_locales.report_path(p).exists():
         if not p.get("ASO_ABOUT"):
             say("todo", "set ASO_ABOUT in config.py, which `aso locales` uses to draft other languages' seeds")

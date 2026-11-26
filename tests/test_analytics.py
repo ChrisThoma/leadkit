@@ -163,6 +163,12 @@ class DashboardTest(unittest.TestCase):
         days["2026-11-09"] = {"page_views": 30}
         self.assertEqual(dashboard.lift(days, "2026-11-08"), (80, 20))
 
+    def test_waiting_lists_leadkit_apps_with_no_report_yet(self):
+        # A new app's first report comes a day or two after the request.
+        app_list = [("1", "Knitwit: Row Counter"), ("9", "Mossling: Moss Care"), ("5", "Other App: Not In Leadkit")]
+        out = dashboard.waiting(app_list, shown={"1"}, apps=["Knitwit", "Mossling"])
+        self.assertEqual(out, [{"id": "9", "name": "Mossling", "title": "Mossling: Moss Care"}])
+
     def test_projection_of_a_steady_month_is_that_month(self):
         pr = dashboard.projection([2.0] * 60)
         self.assertEqual(pr["days"][:3], [2.0, 2.0, 2.0])
@@ -188,6 +194,18 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(pr["from"], "2026-10-29")
         self.assertAlmostEqual(pr["p"]["days"][0], 0.70 / 21, delta=0.05,
                                msg="two sales in four weeks is about 3 cents a day, not 84")
+
+    def test_each_store_gets_its_own_projection(self):
+        sales = [{"date": f"2026-10-{d:02}", "store": st, "units": n, "proceeds": n, "sales": n}
+                 for d in range(1, 29) for st, n in (("iOS", "3"), ("Play", "1"))]
+        pr = dashboard.store_projections(sales, "2026-10-28")
+        self.assertEqual(pr["u"]["days"][0], 4.0, "the top level is both stores")
+        self.assertEqual(pr["stores"]["iOS"]["u"]["days"][0], 3.0)
+        self.assertEqual(pr["stores"]["Play"]["u"]["days"][0], 1.0)
+        self.assertEqual(pr["stores"]["Play"]["from"], pr["from"])
+
+    def test_no_sales_has_no_store_projections(self):
+        self.assertIsNone(dashboard.store_projections([], ""))
 
     def test_page_embeds_the_data(self):
         html = dashboard.render({"built": "2026-11-21", "apps": [], "sources": []})

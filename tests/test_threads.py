@@ -83,6 +83,29 @@ class MarkPostedTest(unittest.TestCase):
         self.assertEqual(c["status"], "posted")
         self.assertEqual(b["status"], "skip")  # a bare URL doesn't revive a skip
 
+    def test_a_reply_without_text_on_a_thread_another_app_logged_is_left_alone(self):
+        """Both apps logged the thread and the pair came without its text, so it can't
+        tell whose reply it is."""
+        other = TempProduct("mossling")
+        self.addCleanup(other.close)
+        other.write("Threads", [{"url": "https://www.threads.com/@a/post/P1", "reply": "x", "status": "draft"}])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            threads.mark_posted(self.t.p, ["/@a/post/P1 /@mythreadshandle/post/R1", "https://www.threads.com/@a/post/P1",
+                                           "/@c/post/P3 /@mythreadshandle/post/R3"], others=[other.p])
+        a, b, c = self.t.read("Threads")
+        self.assertEqual(a["status"], "draft")
+        self.assertEqual(c["status"], "posted")  # a thread only this app logged still counts
+        self.assertIn("Mossling also logged", err.getvalue())
+
+    def test_text_that_names_the_app_still_counts_on_a_shared_thread(self):
+        other = TempProduct("mossling")
+        self.addCleanup(other.close)
+        other.write("Threads", [{"url": "https://www.threads.com/@a/post/P1", "status": "draft"}])
+        threads.mark_posted(self.t.p, ["/@a/post/P1 /@mythreadshandle/post/R1 Knitwit counts my rows"],
+                            others=[other.p])
+        self.assertEqual(self.t.read("Threads")[0]["status"], "posted")
+
 
 class QueryOfTest(unittest.TestCase):
     def test_the_column_wins_over_the_notes(self):

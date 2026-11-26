@@ -20,3 +20,12 @@ THREADS_REDIRECT = "https://example.com/threads/callback/"
 
 # Sent with Reddit and App Store requests. Reddit asks for a contact in it.
 CONTACT = "u/your_reddit_name"
+
+# A Markdown file of your writing rules (optional). Ask for a change on the drafts
+# page gives it to the Claude that redrafts the reply.
+VOICE_GUIDE = ""
+
+# App Store storefronts `aso check --all` ranks for every app besides the US, each in
+# its own language's phrases. An app skips one whose language isn't recorded in its
+# aso/pasted.tsv. A product's own ASO_COUNTRIES replaces this list.
+ASO_COUNTRIES = []

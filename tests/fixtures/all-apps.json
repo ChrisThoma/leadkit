@@ -1,0 +1,13 @@
+{
+  "code": "reddit_all",
+  "app_store": "https://apps.apple.com/app/id{id}?ct={code}",
+  "play_store": "https://play.google.com/store/apps/details?id={id}&referrer=utm_source%3D{code}",
+  "variants": [
+    {"key": "duo", "title": "iPhone Duo apps", "when": "Someone asks for Duo-optimized apps. App Store links only.", "intro": "Biased answer, since I make these, but they're all optimized for the Duo:", "play": false},
+    {"key": "any", "title": "Any app thread", "when": "Show off your app, what are you building, recommend me some apps. App Store and Google Play links.", "intro": "I make a handful of small apps:", "play": true}
+  ],
+  "apps": [
+    {"name": "Knitwit", "id": 1000000001, "play": "com.example.knitwit", "duo": "{link} counts rows and repeats, and the open Duo shows the chart beside the counter.", "any": "{link} counts rows and repeats for knitting patterns."},
+    {"name": "Cragbook", "id": 1000000002, "play": "", "duo": "{link} logs climbing sessions, with the route list on one side of the open Duo.", "any": "{link} logs climbing sessions and grades."}
+  ]
+}

@@ -3,7 +3,7 @@ import shutil, sys, tempfile, unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from leadkit import aso, aso_cli, aso_locales, product, tsv  # noqa: E402
+from leadkit import aso, aso_cli, aso_export, aso_locales, product, tsv  # noqa: E402
 
 
 def offline(*a, **k):
@@ -36,6 +36,7 @@ class TempAso(unittest.TestCase):
         self.p.dir = self.tmp
         (self.tmp / "aso").mkdir()
         self.p.cfg.ASO_COUNTRIES = ["de", "au"]
+        tsv.write(aso_export.path(self.p), aso_export.FIELDS, [{"date": "2026-10-30", "locale": "de-DE", "field": "x"}])
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -81,8 +82,9 @@ class KeywordsTest(TempAso):
         self.assertEqual(aso.keywords(self.p, "us"), english)
         self.assertFalse(aso.localized(self.p, "au"))
 
-    def test_untracked_storefronts_keep_the_english_keywords(self):
-        self.p.cfg.ASO_COUNTRIES = []
+    def test_a_language_not_on_the_store_keeps_the_english_keywords_and_is_skipped(self):
+        aso_export.path(self.p).unlink()
+        self.assertEqual(aso.countries(self.p), ["au"])
         self.assertEqual(aso.keywords(self.p, "de"), self.p.need("ASO_KEYWORDS"))
         self.assertFalse(aso.localized(self.p, "de"))
 
@@ -104,20 +106,43 @@ class KeywordsTest(TempAso):
 
 
 class AllTest(unittest.TestCase):
-    def test_the_daily_run_adds_each_products_countries_after_the_us(self):
-        a, b = product.Product("cragbook"), product.Product("mossling")
-        a.cfg.ASO_COUNTRIES = ["de", "au"]
+    def run_all(self, *extra):
+        a, b, c = (product.Product(n) for n in ("cragbook", "knitwit", "mossling"))
+        for x in (a, b, c):
+            if hasattr(x.cfg, "ASO_COUNTRIES"):
+                delattr(x.cfg, "ASO_COUNTRIES")  # use the shared list in settings
+        on_store = {"cragbook": {"fr-FR": {}, "de-DE": {}}, "knitwit": {"fr-FR": {}, "de-DE": {}}, "mossling": {}}
         calls = []
-        real = product.everything, aso.check, aso.summary
-        product.everything = lambda: [a, b]
+        real = product.everything, aso.check, aso.summary, aso_export.pasted, getattr(product.settings, "ASO_COUNTRIES", None)
+        product.everything = lambda: [a, b, c]
         aso.check = lambda p, country, **k: calls.append((p.name, country))
         aso.summary = lambda p: ""
+        aso_export.pasted = lambda p: on_store[p.name]
+        product.settings.ASO_COUNTRIES = ["fr", "de", "au"]
         try:
-            aso_cli.main(["check", "--all", "--dry-run"])
+            aso_cli.main(["check", "--all", "--dry-run", *extra])
         finally:
-            product.everything, aso.check, aso.summary = real
-        self.assertEqual(calls, [("cragbook", "us"), ("cragbook", "de"), ("cragbook", "au"), ("mossling", "us")])
+            product.everything, aso.check, aso.summary, aso_export.pasted, product.settings.ASO_COUNTRIES = real
+        return calls
 
+    def test_every_product_in_the_us_and_every_shared_storefront_it_has_a_language_for(self):
+        calls = self.run_all()
+        for name in ("cragbook", "knitwit"):
+            self.assertEqual([c for n, c in calls if n == name], ["us", "fr", "de", "au"])
+        self.assertEqual([c for n, c in calls if n == "mossling"], ["us", "au"])
+
+    def test_named_storefronts_only(self):
+        self.assertEqual([x for x in self.run_all("-c", "fr", "au") if x[0] != "mossling"],
+                         [("cragbook", "fr"), ("cragbook", "au"), ("knitwit", "fr"), ("knitwit", "au")])
+
+    def test_one_product_in_several_storefronts(self):
+        calls = []
+        real, aso.check = aso.check, lambda p, country, **k: calls.append((p.name, country))
+        try:
+            aso_cli.main(["check", "-p", "knitwit", "-c", "fr", "de", "--dry-run"])
+        finally:
+            aso.check = real
+        self.assertEqual(calls, [("knitwit", "fr"), ("knitwit", "de")])
 
 class SummaryTest(TempAso):
     def test_one_line_per_country_with_counts_and_moves(self):
@@ -150,7 +175,7 @@ class ConfigTest(unittest.TestCase):
 
     def test_every_tracked_country_has_phrases_to_check(self):
         for p in product.everything():
-            for country in p.get("ASO_COUNTRIES") or []:
+            for country in aso.countries(p):
                 self.assertIn(country, aso.STOREFRONTS, p.name)
                 self.assertTrue(aso.keywords(p, country), f"{p.name} {country}")
 

@@ -149,8 +149,23 @@ steps use Claude in Chrome, signed in to your accounts.
 
 A Claude session runs this as a leads pass (the `leads-pass` skill): `leads
 reddit`, the Threads searches in Chrome, drafts logged in the product's TSVs with
-`leads set`, then `leads drafts` opens the page you copy replies from. Close the
-tab when you're done and it records what you posted.
+`leads set`, then `leads drafts` opens the page you copy replies from. Ask for a
+change on a card takes your note, and a read-only headless Claude redrafts the
+reply, shown as tracked changes with Put back (`VOICE_GUIDE` in settings points
+it at your writing rules). Close the tab when you're done and it records what you
+posted.
+
+`leads threads-feed` reads your Threads For You or Following feed in Chrome:
+`--js` scrolls the tab and gathers posts, and `leads threads-feed receive` lists
+the ones you haven't seen, leaving out your own and ones already logged.
+
+### Every app at once (`replies`)
+
+`replies` (short for `leads apps`) opens a ready-made Reddit reply that names every
+live app with its links, in as many versions as you write (one for "show off your
+app" threads, say), for threads that invite them all. The text is
+`all-apps.json` in your data folder (start from `examples/all-apps.json`), and
+the page is written beside it as `all-apps.html`, so it can be bookmarked.
 
 ### What does well (`leads study`)
 
@@ -193,7 +208,12 @@ both stores. `leads dashboard` serves it on 127.0.0.1:8418 and opens Chrome. The
 Live · 24h view reads App Store Connect's hourly Trends through `asc web auth
 login`. Sync runs `leads analytics sync`, and `leads analytics daily` installs a 3 a.m. launchd job that does the
 same. The page says when the code is newer than the running server, and Restart
-loads it.
+loads it. The Keywords tab shows each app's newest App Store search ranks by
+phrase. The Sales tab filters by store (Combined splits each tile into the two
+stores) and counts in Eastern days: each sync saves the hour of recent sales in
+`marketing/hours.json` (iOS from Trends, which needs the web session; Play from
+order times), and `eastern.py` moves those sales off the stores' own days. Apps
+with no analytics report yet are listed at the top until their first one arrives.
 
 ### The marketing log (`leads log`)
 
@@ -204,9 +224,14 @@ two days with no numbers. `leads log day` prints one day's sales and posts as JS
 
 ### App Store keywords (`aso`)
 
-1. Ranks, every day. A launchd job runs `aso check --all` and appends to each
-   product's `aso/ranks.tsv`. `aso report` shows the last check, with the rank at
-   the check before in brackets.
+1. Ranks, on demand. `aso check --all` ranks every app in the US and the
+   storefronts in `ASO_COUNTRIES` (settings), skipping a storefront whose language
+   isn't in the app's `aso/pasted.tsv`; `aso check --all -c fr` ranks every app in
+   one. Both append to each product's `aso/ranks.tsv`, print an estimate first,
+   and commit the ranks. `aso report` shows the last check, with the rank at the
+   check before in brackets. The `api` column is the iTunes Search API rank, up to
+   200 deep (`not found` past that); requests carry the date, because Apple caches
+   each URL for a day. `aso daily` installs an optional daily launchd check.
 2. Choosing English keywords. `aso suggest <word>` lists what Apple
    autocompletes, and `aso top "<phrase>"` shows who holds a phrase and how many
    ratings they have. Phrases you keep go in `ASO_KEYWORDS`.
@@ -231,6 +256,8 @@ everything.
     leads threads-posted [URL ...]   # mark Threads rows posted
     leads threads-yield              # views of your replies by the search that found the lead
     leads drafts                     # the drafts page; exits when the tab closes
+    leads apps                       # the all-apps reply page (also `replies`)
+    leads threads-feed [--js]        # read your Threads home feed in Chrome
     leads looking "reading threads"  # tell the drafts page what's still running
     leads kinds                      # drafts, posts and skips per lead kind
     leads stats                      # found, drafted, posted by sub and week
@@ -243,10 +270,11 @@ everything.
     leads setup [--check] [--new NAME]
 
     aso check [--all]                # rank every keyword and save it
+    aso check --all -c fr de         # every product, only those storefronts
     aso report [-c de]               # the last saved check, no network
     aso top "phrase"                 # who holds a keyword, with rating counts
     aso suggest word                 # Apple's typing suggestions
-    aso daily [--at 09:15] [--off]   # install or remove the daily check
+    aso daily [--at 09:15] [--off]   # optional: install or remove a daily check
     aso locales [--only de-DE ja]    # a keyword field for every App Store language
     aso locales --review             # look every field word up on Wiktionary
     aso export [--todo]              # each field, to paste into App Store Connect

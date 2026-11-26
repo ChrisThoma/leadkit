@@ -1,4 +1,4 @@
-"""The daily check committing its own ranks."""
+"""The rank check committing its own ranks."""
 import shutil, subprocess, sys, tempfile, unittest
 from pathlib import Path
 
@@ -32,7 +32,7 @@ class CommitRanksTest(unittest.TestCase):
         self.other.write_text("someone else's edit\n")
         git(self.repo, "add", "notes.md")
         aso_cli.commit_ranks(self.repo, [self.ranks], "2026-11-04")
-        self.assertEqual(git(self.repo, "log", "-1", "--format=%s").strip(), "aso: daily ranks 2026-11-04")
+        self.assertEqual(git(self.repo, "log", "-1", "--format=%s").strip(), "aso: ranks 2026-11-04")
         self.assertEqual(git(self.repo, "show", "--name-only", "--format=", "HEAD").split(),
                          ["products/app/aso/ranks.tsv"])
         self.assertIn("notes.md", git(self.repo, "diff", "--cached", "--name-only"))

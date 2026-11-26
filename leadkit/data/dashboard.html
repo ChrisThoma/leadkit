@@ -295,9 +295,11 @@ function renderNav() {
     (SERVED ? `<button data-app="live" class="${state.app === "live" ? "on" : ""}">Live · 24h</button>` : "") +
     `<button data-app="sales" class="${state.app === "sales" ? "on" : ""}">Sales</button>` +
     `<button data-app="ratings" class="${state.app === "ratings" ? "on" : ""}">Ratings</button>` +
+    `<button data-app="keywords" class="${state.app === "keywords" ? "on" : ""}">Keywords</button>` +
     `<button data-app="" class="${state.app ? "" : "on"}">All apps</button><span class="navsep"></span>` +
-    apps.map(a => `<button data-app="${a.id}" class="${state.app === a.id ? "on" : ""}"><i class="sw" style="background:${G.color(G.group(a.name))}"></i>${esc(a.name)}</button>`.replace("<button ", `<button title="${esc(a.name)}" `)).join("");
-  document.getElementById("range").hidden = ["live", "sales", "ratings"].includes(state.app);
+    apps.map(a => `<button data-app="${a.id}" class="${state.app === a.id ? "on" : ""}"><i class="sw" style="background:${G.color(G.group(a.name))}"></i>${esc(a.name)}</button>`.replace("<button ", `<button title="${esc(a.name)}" `)).join("") +
+    (DATA.waiting || []).map(a => `<button data-app="${a.id}" title="${esc(a.name)}" class="${state.app === a.id ? "on" : ""}"><i class="sw" style="background:${G.color(G.group(a.name))}"></i>${esc(a.name)}</button>`).join("");
+  document.getElementById("range").hidden = ["live", "sales", "ratings", "keywords"].includes(state.app);
   document.getElementById("range").innerHTML = RANGES.map(([l, n]) => `<button data-n="${n}" class="${state.range === n ? "on" : ""}">${l}</button>`).join("");
 }
 
@@ -321,9 +323,10 @@ function appGroups() {
   const earned = {}, seen = {};
   for (const r of DATA.sales || []) { earned[r.app] = (earned[r.app] || 0) + r.p; if (!seen[r.app] || r.d < seen[r.app]) seen[r.app] = r.d; }
   for (const a of DATA.apps) { earned[a.name] ??= 0; const d = Object.keys(a.days)[0]; if (d && (!seen[a.name] || d < seen[a.name])) seen[a.name] = d; }
+  for (const n of PINNED) earned[n] ??= 0;  // its colour before its first report arrives
   const pin = n => { const i = PINNED.indexOf(n); return i < 0 ? 99 : i; };
   const ranked = Object.keys(earned).sort((x, y) => pin(x) - pin(y) || (seen[x] || "9").localeCompare(seen[y] || "9") || x.localeCompare(y));
-  const named = ranked.slice(0, ranked.length > APP_COLORS.length ? APP_COLORS.length - 1 : APP_COLORS.length);
+  const named = ranked.slice(0, APP_COLORS.length);
   const groups = ranked.length > named.length ? [...named, "Other"] : named;
   const group = n => named.includes(n) ? n : "Other";
   // A store title ("Proofer: Sourdough Timer") to its app name, as mlog.app_of does.
@@ -544,9 +547,14 @@ function periodName(p, g) {
 }
 let SALES = null;
 const WHAT = { s: "Sales", p: "Proceeds", u: "Units" };
-const SUB = { s: "what customers paid, USD", p: "USD after Apple's and Google's cut", u: "iOS and Play, free apps included" };
+const STORES = [["App Store", "iOS"], ["Google Play", "Play"]];
+const SUB = {
+  "": { s: "what customers paid, USD", p: "USD after Apple's and Google's cut", u: "iOS and Play, free apps included" },
+  iOS: { s: "what customers paid on the App Store, USD", p: "USD after Apple's cut", u: "App Store, free apps included" },
+  Play: { s: "what customers paid on Google Play, USD", p: "USD after Google's cut, estimated at 15%", u: "Google Play, free apps included" } };
 function salesModel() {
-  const g = state.grain || "week", m = state.metric || "p", rows = DATA.sales || [], pr = DATA.projection;
+  const g = state.grain || "week", m = state.metric || "p", store = state.store || "", both = DATA.projection;
+  const rows = (DATA.sales || []).filter(r => !store || r.store === store), pr = store ? both && both.stores && both.stores[store] : both;
   const through = DATA.sales_through, first = rows.reduce((t, r) => r.d < t ? r.d : t, through);
   const { earned, groups, color, group } = appGroups();
   const fc = (pr && pr[m] && pr[m].days) || [], sd = (pr && pr[m] && pr[m].sd) || 0, fcFrom = pr ? pr.from : addDays(through, 1);
@@ -566,10 +574,11 @@ function salesModel() {
     const band = 1.28 * sd * Math.sqrt(n);
     return { p, end, apps, actual, proj, n, lo: Math.max(0, actual + proj - band), hi: actual + proj + band };
   });
-  const sumDays = (from, to, k = m) => rows.filter(r => r.d >= from && r.d <= to).reduce((t, r) => t + r[k], 0);
+  const sumDays = (from, to, k = m, st = "") => rows.filter(r => r.d >= from && r.d <= to && (!st || r.store === st)).reduce((t, r) => t + r[k], 0);
   const fcSum = (from, to) => { let t = 0, n = 0; for (let d = from; d <= to; d = addDays(d, 1)) { const i = Math.round((new Date(d) - new Date(fcFrom)) / 864e5); if (i >= 0 && i < fc.length) { t += fc[i]; n++; } } return [t, 1.28 * sd * Math.sqrt(n)]; };
   const other = m === "u" ? null : m === "p" ? "s" : "p";  // the other money measure, drawn beside it
-  return { g, m, rows, through, first, groups, color, bars, sumDays, fcSum, fcFrom, earned, fc, sd, other, pr };
+  const shown = store ? groups.filter(n => rows.some(r => group(r.app) === n)) : groups;  // a store's legend names only its apps
+  return { g, m, store, rows, through, first, groups: shown, color, bars, sumDays, fcSum, fcFrom, earned, fc, sd, other, pr };
 }
 function salesView() {
   if (!(DATA.sales || []).length) return `<p class="empty">No sales synced yet. Press Sync, or run <code>leads log sync</code>.</p>`;
@@ -590,14 +599,19 @@ function salesView() {
   const tile = (label, v, rows) => `<div class="card tile"><div class="label">${label}</div><div class="value">${v}</div>${kv(rows)}</div>`;
   const S = M.sumDays(M.first, through, "s"), P = M.sumDays(M.first, through, "p");
   const ch = (n, b) => { const c = (n - b) / b; return `<span class="${c > 0.02 ? "up" : c < -0.02 ? "down" : ""}">${c > 0 ? "+" : ""}${Math.round(c * 100)}%</span>`; };
+  // With both stores in view, each card's number splits into App Store and Google Play.
+  const split = fn => M.store ? [] : STORES.map(([l, st]) => [l, fn(st)]);
+  const splitDays = (from, total) => split(st => { const v = M.sumDays(from, through, m, st); return `${f(v)}${total ? ` <span class="dim">${pct(v, total)}</span>` : ""}`; });
+  const splitNext = split(st => { const p = M.pr && M.pr.stores && M.pr.stores[st]; return est(p ? p[m].days.slice(0, 30).reduce((t, v) => t + v, 0) : 0); });
   const tiles = `<div class="tiles four">
     ${tile(`${what}, all time`, f(all), [
+      ...splitDays(M.first, all),
       m !== "s" && ["Customers paid", dollars(S)],
       m !== "p" && ["You kept", `${dollars(P)}${S ? ` <span class="dim">${pct(P, S)}</span>` : ""}`],
       ["Since", short(M.first)]])}
-    ${tile("Last 30 days", f(d30), M.first <= addDays(through, -59) && d30b ? [["Change", ch(d30, d30b)], ["30 days before", f(d30b)]] : [])}
-    ${tile(`${monthName} so far`, f(mtd), mEnd > through ? [["On pace for", `<b>${est(mtd + rest)}</b>`], ["Likely", range(mtd + rest, restBand)]] : [["", "The whole month"]])}
-    ${tile("Next 30 days, projected", f(next30), [["Likely", range(next30, band30)]])}
+    ${tile("Last 30 days", f(d30), [...splitDays(addDays(through, -29), d30), ...(M.first <= addDays(through, -59) && d30b ? [["Change", ch(d30, d30b)], ["30 days before", f(d30b)]] : [])])}
+    ${tile(`${monthName} so far`, f(mtd), [...splitDays(mStart, mtd), ...(mEnd > through ? [["On pace for", `<b>${est(mtd + rest)}</b>`], ["Likely", range(mtd + rest, restBand)]] : [["", "The whole month"]])])}
+    ${tile("Next 30 days, projected", f(next30), [...splitNext, ["Likely", range(next30, band30)]])}
   </div>`;
   // chart
   const H = 220, ds = bars.map(b => b.p);
@@ -623,26 +637,27 @@ function salesView() {
   });
   if (firstProj > 0) { const x = sx.x(firstProj) - sx.step / 2; svg += `<line x1="${x}" x2="${x}" y1="4" y2="${H - 18}" stroke="var(--line)" stroke-width="1"/><text x="${x + 6}" y="14">Projected</text>`; }
   const seg = (items, key, cur) => `<div class="seg">${items.map(([l, v]) => `<button data-${key}="${v}" class="${cur === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  const controls = `<div class="controls">${seg(GRAINS, "grain", g)}${seg([["Sales", "s"], ["Proceeds", "p"], ["Units", "u"]], "metric", m)}</div>`;
-  const chart = `<div class="card charts" id="charts"><div class="chart"><h3>${what} per ${g} <span class="sub">${SUB[m]}</span>
+  const controls = `<div class="controls">${seg([["Combined", ""], ...STORES], "store", M.store)}${seg(GRAINS, "grain", g)}${seg([["Sales", "s"], ["Proceeds", "p"], ["Units", "u"]], "metric", m)}</div>`;
+  const chart = `<div class="card charts" id="charts"><div class="chart"><h3>${what} per ${g} <span class="sub">${SUB[M.store][m]}</span>
 </h3><div class="keyline">${legend(M.groups, M.groups.map(M.color))}<span class="legend"><span><i class="proj"></i>Projected, with likely range</span></span></div>
     <svg viewBox="0 0 ${W} ${H}" style="height:${H}px">${fr.g}${svg}<g class="hover"></g></svg></div><div class="tip" id="tip"></div></div>`;
   // by app
-  const apps = Object.keys(M.earned).map(a => {
+  const apps = Object.keys(M.earned).filter(a => !M.store || M.rows.some(x => x.app === a)).map(a => {
     const r = M.rows.filter(x => x.app === a);
     const s = k => r.reduce((t, x) => t + x[k], 0), s30 = k => r.filter(x => x.d > addDays(through, -30)).reduce((t, x) => t + x[k], 0);
     return { a, u: s("u"), p: s("p"), s: s("s"), u30: s30("u"), p30: s30("p"), ios: r.filter(x => x.store === "iOS").reduce((t, x) => t + x.p, 0) };
   }).sort((x, y) => y.p - x.p || y.u - x.u);
   const allP = apps.reduce((t, x) => t + x.p, 0);
   const table = `<div class="card"><h2>By app<span class="sub">all time and the last 30 days</span></h2><div class="scroll"><table>
-    <tr><th>App</th><th class="n">Units</th><th class="n">Sales</th><th class="n">Proceeds</th><th class="n">Kept</th><th class="n">Share</th><th class="n">Per unit</th><th class="n">Units, 30 days</th><th class="n">Proceeds, 30 days</th><th class="n">Play</th></tr>
+    <tr><th>App</th><th class="n">Units</th><th class="n">Sales</th><th class="n">Proceeds</th><th class="n">Kept</th><th class="n">Share</th><th class="n">Per unit</th><th class="n">Units, 30 days</th><th class="n">Proceeds, 30 days</th>${M.store ? "" : `<th class="n">Play</th>`}</tr>
     ${apps.map(x => `<tr><td><span class="legend"><span><i style="background:${M.color(M.groups.includes(x.a) ? x.a : "Other")}"></i>${esc(x.a)}</span></span></td>
       <td class="n">${fmt(x.u)}</td><td class="n">${dollars(x.s)}</td><td class="n">${dollars(x.p)}</td><td class="n">${x.s ? pct(x.p, x.s) : "–"}</td><td class="n">${pct(x.p, allP)}</td><td class="n">${x.u && x.p ? dollars(x.p / x.u) : "–"}</td>
-      <td class="n">${fmt(x.u30)}</td><td class="n">${dollars(x.p30)}</td><td class="n">${x.p - x.ios > 0.005 ? dollars(x.p - x.ios) : "–"}</td></tr>`).join("")}
+      <td class="n">${fmt(x.u30)}</td><td class="n">${dollars(x.p30)}</td>${M.store ? "" : `<td class="n">${x.p - x.ios > 0.005 ? dollars(x.p - x.ios) : "–"}</td>`}</tr>`).join("")}
   </table></div></div>`;
-  return controls + tiles + cumulative(M) + chart + table + `<p class="note">Sales are what customers paid; proceeds are what you're paid after the store's cut and tax (Play's cut estimated at 15%).
-    Kept runs under 85% because Apple's prices include VAT outside the US: a €0.99 sale in Germany pays €0.71. Live shows sales.
-    Projection: the recent level plus the 8-week trend; the range holds about 8 times in 10.</p>`;
+  return controls + tiles + cumulative(M) + chart + table + `<p class="note">Sales are what customers paid; proceeds are what you're paid after ${M.store === "Play" ? "Google's cut, estimated at 15%." : `the store's cut and tax${M.store ? "." : " (Play's cut estimated at 15%)."}
+    Kept runs under 85% because Apple's prices include VAT outside the US: a €0.99 sale in Germany pays €0.71.`} Live shows sales.
+    Days are Eastern time${M.store === "Play" || !DATA.eastern_from ? "" : `, for the App Store from ${short(DATA.eastern_from)}; earlier App Store days are Apple's`}.
+    Projection: the recent level plus the 8-week trend; the range holds about 8 times in 10.${M.store ? "" : " Each store is forecast from its own sales, so the two don't add up to the combined projection."}</p>`;
 }
 // The running total since the first sale, then the projection for the next 90 days with
 // its likely range (the band widens with √days, as in the bars).
@@ -784,12 +799,16 @@ function overviewTip() {
 function render() {
   if (!DATA || !DATA.apps.length) { document.getElementById("main").innerHTML = `<p class="empty">No analytics yet. Run <code>leads dashboard --sync</code>.</p>`; return; }
   if (state.app === "live" && !SERVED) state.app = null;
-  if (state.app && !["live", "sales", "ratings"].includes(state.app) && !DATA.apps.find(a => a.id === state.app)) state.app = null;
+  if (state.app && !["live", "sales", "ratings", "keywords"].includes(state.app) && !DATA.apps.find(a => a.id === state.app) && !(DATA.waiting || []).find(a => a.id === state.app)) state.app = null;
   renderNav();
   W = Math.max(320, document.getElementById("main").clientWidth);
   if (state.app === "live") { document.title = "Live · App Analytics"; return renderLive(); }
   if (state.app === "ratings") { document.title = "Ratings · App Analytics"; return renderRatings(); }
+  if (state.app === "keywords") { document.title = "Keywords · App Analytics"; document.getElementById("main").innerHTML = keywordsView(); return; }
   if (state.app === "sales") { document.title = "Sales · App Analytics"; document.getElementById("main").innerHTML = salesView(); return salesHover(); }
+  // An app Apple hasn't sent a report for yet: its button, and a line saying so.
+  const w = (DATA.waiting || []).find(x => x.id === state.app);
+  if (w) { document.title = `${w.name} · App Analytics`; document.getElementById("main").innerHTML = `<p class="empty">No App Store analytics for ${esc(w.name)} yet. Apple sends an app's first report a day or two after it's requested, and Sync picks it up then.</p>`; return; }
   const a = DATA.apps.find(x => x.id === state.app);
   document.getElementById("main").innerHTML = a ? appView(a) : overview();
   if (a && state.range > 1) chartHover(window_(a, state.range), appTip(a));
@@ -840,19 +859,23 @@ document.addEventListener("click", e => {
     if (cur && cur[0] === i) cur[1] = -cur[1];
     else {
       const vals = [...t.rows].slice(1).map(r => r.cells[i] ? cellValue(r.cells[i]) : null).filter(v => v !== null);
-      sorts[key] = [i, vals.filter(v => typeof v === "number").length > vals.length / 2 ? -1 : 1];
+      sorts[key] = [i, th.dataset.first ? +th.dataset.first : vals.filter(v => typeof v === "number").length > vals.length / 2 ? -1 : 1];
     }
     save();
     if (key === DAY_TABLE) render(); else sortTables();
     return;
   }
   if (e.target.closest("a")) return;
-  const t = e.target.closest("[data-app],[data-n],[data-more],[data-grain],[data-metric],[data-split],[data-chip],[data-ptype]"); if (!t || (e.target.closest("summary") && !t.dataset.ptype)) return;
+  const t = e.target.closest("[data-app],[data-n],[data-more],[data-grain],[data-metric],[data-store],[data-split],[data-chip],[data-ptype],[data-kwapp],[data-kwc],[data-kwall]"); if (!t || (e.target.closest("summary") && !t.dataset.ptype)) return;
   if (t.dataset.ptype !== undefined) state.ptype = t.dataset.ptype || null;
+  else if (t.dataset.kwapp !== undefined) state.kwApp = t.dataset.kwapp || null;
+  else if (t.dataset.kwc) state.kwCountry = t.dataset.kwc;
+  else if (t.dataset.kwall) state.kwAll = !state.kwAll;
   else if (t.dataset.more) state.allPosts = !state.allPosts;
   else if (t.dataset.chip !== undefined) { const h = new Set(state.hidden || []), c = t.dataset.chip; h.has(c) ? h.delete(c) : h.add(c); state.hidden = [...h]; }
   else if (t.dataset.split !== undefined) state.split = !!t.dataset.split;
   else if (t.dataset.grain) state.grain = t.dataset.grain;
+  else if (t.dataset.store !== undefined) state.store = t.dataset.store;
   else if (t.dataset.metric) state.metric = t.dataset.metric;
   else if (t.dataset.n) state.range = +t.dataset.n; else state.app = t.dataset.app || null;
   save(); render();
@@ -897,6 +920,55 @@ function ratingsView() {
       return `<tr><td>${G.group(G.nameOf(r.title)) === "Other" ? esc(r.title) : swatch(G.color(G.group(G.nameOf(r.title))), esc(r.title))}</td><td class="n">${ia}</td><td class="n">${ic}</td><td class="n">${pa}</td><td class="n">${pc}</td></tr>`; }).join("")}</table></div>`;
   const errs = (R.errors || []).length ? ` Couldn't read: ${esc(R.errors.join("; "))}.` : "";
   return tiles + table + `<p class="note">App Store: every storefront, including stars left without a review. Google Play: the Play Console reviews export, which also counts stars without text; a blank means the app isn't on Play.${R.fetched ? ` Fetched ${new Date(R.fetched).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: ET, timeZoneName: "short" })}.` : ""}${errs}</p>`;
+}
+
+// ---- keywords -------------------------------------------------------------
+// DATA.ranks: each app's newest App Store search rank per phrase (products/*/aso/ranks.tsv,
+// from `aso check`), with the check a week before it. Two ranks because the store
+// page shows 12 results and Apple's Search API 200, and the two don't always agree.
+const rankNum = v => /^\d+$/.test(v || "") ? +v : null;
+const countryName = c => { try { return new Intl.DisplayNames(undefined, { type: "region" }).of(c.toUpperCase()); } catch (e) { return c.toUpperCase(); } };
+function rankCell(now, was) {
+  // The change from a week before, green for closer to 1. Entering or leaving says where it was.
+  const n = rankNum(now), w = rankNum(was);
+  let ch = "";
+  if (now && was && now !== was) {
+    const better = n !== null && (w === null || n < w);
+    ch = ` <span class="delta"><span class="${better ? "up" : "down"}">${n !== null && w !== null ? (better ? "▲" : "▼") + Math.abs(n - w) : `${w === null && was === "not found" ? "was" : "from"} ${esc(was)}`}</span></span>`;
+  }
+  return `<td class="n" data-v="${n ?? ""}">${n === null ? `<span class="dim">${esc(now || "–")}</span>` : n}${ch}</td>`;
+}
+function keywordsView() {
+  const all = DATA.ranks || [], G = appGroups();
+  if (!all.length) return `<p class="empty">No ranks saved yet. Run <code>aso check</code>.</p>`;
+  const apps = [...new Set(all.map(r => r.app))].sort((x, y) => G.groups.indexOf(G.group(x)) - G.groups.indexOf(G.group(y)));
+  const app = apps.includes(state.kwApp) ? state.kwApp : null;
+  const mine = all.filter(r => !app || r.app === app);
+  const countries = [...new Set(mine.map(r => r.country))].sort((x, y) => (y === "us") - (x === "us") || countryName(x).localeCompare(countryName(y)));
+  const c = countries.includes(state.kwCountry) ? state.kwCountry : countries[0];
+  const rows = mine.filter(r => r.country === c);
+  const found = r => rankNum(r.store) !== null || rankNum(r.api) !== null;
+  const pos = r => [rankNum(r.store) ?? 999, rankNum(r.api) ?? 999];
+  rows.sort((x, y) => pos(x)[0] - pos(y)[0] || pos(x)[1] - pos(y)[1] || (y.pop || 0) - (x.pop || 0) || x.keyword.localeCompare(y.keyword));
+  const label = a => swatch(G.color(G.group(a)), esc(a));
+  const seg = (items, on, key) => `<div class="seg">${items.map(([v, l]) => `<button data-${key}="${esc(v)}" class="${v === on ? "on" : ""}">${esc(l)}</button>`).join("")}</div>`;
+  const controls = `<div class="controls">${seg([["", "All apps"], ...apps.map(a => [a, a])], app || "", "kwapp")}${countries.length > 1 ? seg(countries.map(x => [x, countryName(x)]), c, "kwc") : ""}</div>`;
+  const count = (rs, f) => rs.filter(f).length;
+  const move = (r, dir) => { const a = pos(r), b = [rankNum(r.was_store) ?? 999, rankNum(r.was_api) ?? 999];
+    return r.was_date && r.store && r.api && Math.sign((b[0] - a[0]) || (b[1] - a[1])) === dir; };
+  const byApp = app ? "" : `<div class="card"><h2>By app<span class="sub">${esc(countryName(c))}</span></h2><div class="scroll"><table>
+    <tr><th>App</th><th class="n">Phrases</th><th class="n">Store top 3</th><th class="n">Store top 12</th><th class="n">In the Search API</th><th class="n">Up this week</th><th class="n">Down this week</th></tr>
+    ${apps.map(a => [a, rows.filter(r => r.app === a)]).filter(([, rs]) => rs.length).map(([a, rs]) => `<tr><td>${label(a)}</td><td class="n">${rs.length}</td>
+      <td class="n">${count(rs, r => rankNum(r.store) !== null && rankNum(r.store) <= 3)}</td><td class="n">${count(rs, r => rankNum(r.store) !== null)}</td>
+      <td class="n">${count(rs, r => rankNum(r.api) !== null)}</td><td class="n">${count(rs, r => move(r, 1))}</td><td class="n">${count(rs, r => move(r, -1))}</td></tr>`).join("")}</table></div></div>`;
+  const shown = state.kwAll ? rows : rows.filter(found), hiddenN = rows.length - count(rows, found);
+  const table = `<div class="card"><h2>Phrases<span class="sub">${esc(countryName(c))}, checked ${short(rows.reduce((t, r) => r.date > t ? r.date : t, ""))}, changes against a week before</span></h2>
+    ${shown.length ? `<div class="scroll"><table><tr>${app ? "" : "<th>App</th>"}<th>Phrase</th><th class="n" data-first="1">Store</th><th class="n" data-first="1">Search API</th><th class="n">Popularity</th><th class="n">Difficulty</th><th>First in the store</th></tr>
+    ${shown.map(r => `<tr>${app ? "" : `<td>${label(r.app)}</td>`}<td>${esc(r.keyword)}</td>${rankCell(r.store, r.was_store)}${rankCell(r.api, r.was_api)}
+      <td class="n">${r.pop ?? "–"}</td><td class="n">${r.diff ?? "–"}</td><td>${rankNum(r.store) === 1 ? `<span class="dim">this app</span>` : esc(r.leader || "–")}</td></tr>`).join("")}</table></div>` : `<div class="empty">None of these phrases rank yet.</div>`}
+    ${hiddenN ? `<button class="more" data-kwall="1">${state.kwAll ? "Hide the phrases that don't rank" : `Show ${plural(hiddenN, "phrase")} that ${hiddenN === 1 ? "doesn't" : "don't"} rank`}</button>` : ""}
+    <p class="note">Store is the App Store's own search page, which shows 12 results. Search API is Apple's search feed, which returns up to 200 apps; “not found” means it left this one out. Checks before Nov 25 often repeated the day before, because Apple caches its answers for a day. Popularity and difficulty are leadkit's estimates, 0 to 100; popularity isn't measured outside English.</p></div>`;
+  return controls + byApp + table;
 }
 
 // ---- served: live view, Sync, keep-alive ----------------------------------

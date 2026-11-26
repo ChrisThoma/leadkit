@@ -311,17 +311,17 @@ sessionStorage.setItem('leadkitStudy',JSON.stringify(all));return got.size+' pos
 # Its policy sets no form-action, though, so dump_js submits the gathered posts as a
 # form to `receive`'s local server. It clears nothing: clearing sessionStorage
 # before the save is confirmed would lose the posts. Close the tab after.
-def dump_js(url):
-    return (r"""(()=>{const s=sessionStorage.getItem('leadkitStudy')||'[]';const f=document.createElement('form');
+def dump_js(url, key="leadkitStudy"):
+    return (r"""(()=>{const s=sessionStorage.getItem('KEY')||'[]';const f=document.createElement('form');
 f.method='POST';f.action='URL';const t=document.createElement('textarea');t.name='posts';t.value=s;f.appendChild(t);
-document.body.appendChild(f);f.submit();return JSON.parse(s).length+' posts sent';})()""").replace("URL", url)
+document.body.appendChild(f);f.submit();return JSON.parse(s).length+' posts sent';})()""").replace("URL", url).replace("KEY", key)
 
 
-def receive(p, port=0, timeout=900):
+def receive(p, port=0, timeout=900, key="leadkitStudy", out=None, prefix="threads-raw"):
     """Take one form POST of gathered posts, save it and return its path. Prints
     the URL and the dump script to run on the Threads tab."""
     import http.server, urllib.parse
-    out = p.dir / "study"
+    out = out or p.dir / "study"
     out.mkdir(exist_ok=True)
     got = {}
 
@@ -346,8 +346,8 @@ def receive(p, port=0, timeout=900):
                 posts = json.loads((form.get("posts") or ["[]"])[0])
             except ValueError:
                 return self.reply("not JSON")
-            n = len(list(out.glob(f"threads-raw-{date.today().isoformat()}*.json")))
-            path = out / f"threads-raw-{date.today().isoformat()}{'-' + str(n + 1) if n else ''}.json"
+            n = len(list(out.glob(f"{prefix}-{date.today().isoformat()}*.json")))
+            path = out / f"{prefix}-{date.today().isoformat()}{'-' + str(n + 1) if n else ''}.json"
             path.write_text(json.dumps(posts, ensure_ascii=False))
             got["path"] = path
             self.reply(f"saved {len(posts)} posts to {path}. Close this tab.")
@@ -355,7 +355,7 @@ def receive(p, port=0, timeout=900):
     server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     server.timeout = 5
     url = f"http://127.0.0.1:{server.server_port}/"
-    print(f"{url}\n# on the Threads tab, run:\n{dump_js(url)}", flush=True)
+    print(f"{url}\n# on the Threads tab, run:\n{dump_js(url, key)}", flush=True)
     deadline = time.time() + timeout
     while "path" not in got and time.time() < deadline:
         server.handle_request()

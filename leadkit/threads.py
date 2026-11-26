@@ -1,7 +1,7 @@
 """Threads: the searches a leads pass runs in Chrome, marking posted replies,
 and the official keyword_search API watcher.
 
-Threads has no feed this can read without an API token, so most passes run the
+The API has no feed (`leads threads-feed` reads the home feed in Chrome), so passes run the
 product's THREADS_SEARCHES in Chrome (Claude in Chrome) and read the results
 with EXTRACT_JS. Generic phrases also match months-old viral posts, so skip
 anything older than about a day.
@@ -18,8 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from . import kinds, reddit, threadsapi, tsv
-from . import product
+from . import kinds, product, reddit, threadsapi, tsv
 from .product import settings
 
 TOP, RECENT = "", "&filter=recent"
@@ -112,7 +111,19 @@ def names_product(p, text):
     return p.title.lower() in text or bool(store_id and f"id{store_id}" in text)
 
 
-def mark_posted(p, items):
+def logged_by_others(p, others=None):
+    """{thread path: app title} for threads another product has also logged."""
+    if others is None:
+        others = [o for o in product.everything() if o.name != p.name]
+    shared = {}
+    for o in others:
+        if o.threads_tsv.exists():
+            for r in tsv.read(o.threads_tsv)[1]:
+                shared.setdefault(path_of(r.get("url") or ""), o.title)
+    return shared
+
+
+def mark_posted(p, items, others=None):
     """Mark Threads rows posted.
 
     Each item is either "parent-path reply-path [reply text]" (from replies_js,
@@ -120,16 +131,28 @@ def mark_posted(p, items):
     reply found by hand on the Replies tab. When the text is there, a reply
     counts only if it names this product or links its App Store id, so one app's
     reply on a showcase thread doesn't mark another app's draft there posted.
+    Without the text, a reply on a thread another product also logged isn't
+    marked, since it can't tell which app's reply it is.
     """
     replies, plain = {}, set()
+    shared = None
     for item in items:
         parts = item.split(maxsplit=2)
-        if len(parts) >= 2:
-            if len(parts) == 3 and not names_product(p, parts[2]):
-                print(f"not {p.title}: {BASE}{parts[1]}", file=sys.stderr)
+        if not parts:
+            continue
+        if len(parts) == 3 and not names_product(p, parts[2]):
+            print(f"not {p.title}: {BASE}{parts[1]}", file=sys.stderr)
+            continue
+        if len(parts) < 3:
+            shared = logged_by_others(p, others) if shared is None else shared
+            other = shared.get(path_of(parts[0]))
+            if other:
+                print(f"not marked: {other} also logged {BASE}{path_of(parts[0])}. Pass the reply's text, "
+                      f"or mark the right app's row with `leads set`.", file=sys.stderr)
                 continue
+        if len(parts) >= 2:
             replies[path_of(parts[0])] = BASE + parts[1]
-        elif len(parts) == 1:
+        else:
             plain.add(path_of(parts[0]))
 
     def update(r):

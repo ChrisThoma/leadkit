@@ -6,7 +6,8 @@ Three public sources, none needing a login:
 - The store's own search, from the server-rendered apps.apple.com search page
   (`/<country>/iphone/search?term=`). This is Apple's real ranking, but the page
   only carries the top 12, so anything lower reads ">12".
-- The iTunes Search API (`itunes.apple.com/search`), which goes 200 deep but is a
+- The iTunes Search API (`itunes.apple.com/search`), which returns up to 200 apps
+  (150 to 180 on 2026-11-24; an app left out reads "not found") but is a
   separate index that only loosely tracks the store: on 2026-10-27 the two agreed
   on most of the top 12 for a keyword but not on the order.
 - The store's typing suggestions (MZSearchHints). How few letters it takes before
@@ -22,7 +23,7 @@ history builds up for comparing against App Analytics and metadata changes.
 """
 import html, json, math, plistlib, re, statistics, sys, time, urllib.error, urllib.parse, urllib.request
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date
+from datetime import date, timedelta
 
 from . import product, tsv
 
@@ -30,12 +31,13 @@ FIELDS = ["date", "country", "keyword", "store_rank", "api_rank", "popularity", 
           "top10_median_ratings", "leader", "ahead"]
 STORE_DEPTH = 12
 API_LIMIT = 200
+NOT_FOUND = "not found"
 # The Search API allows about 20 calls a minute.
 API_PAUSE = 3.1
 HINT_PAUSE = 0.3
 STORE_PAUSE = 1.0
-# Phrases ranked in each of a product's ASO_COUNTRIES, the most valuable first. Each costs a
-# Search API call (about 4 s), and 15 keeps the daily run under half an hour.
+# Phrases ranked in each storefront besides the US, the most valuable first. Each costs a
+# Search API call (about 4 s).
 COUNTRY_PHRASES = 15
 AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 # The hints endpoint takes the storefront from this header, not a parameter.
@@ -81,7 +83,10 @@ def api_results(data):
 
 
 def api_search(term, country, limit=API_LIMIT):
-    q = urllib.parse.urlencode({"term": term, "entity": "software", "country": country, "limit": limit})
+    q = urllib.parse.urlencode({"term": term, "entity": "software", "country": country, "limit": limit,
+                                # Apple caches each URL for 24 h, so without the date a daily
+                                # check often repeats the day before (found 2026-11-24).
+                                "day": date.today().isoformat()})
     data = fetch(f"https://itunes.apple.com/search?{q}", pause=API_PAUSE)
     return api_results(data) if data else None
 
@@ -172,6 +177,12 @@ def rank(results, app_id, depth=None):
     return f">{depth or len(results)}"
 
 
+def api_rank(results, app_id):
+    """The Search API's rank. It returns fewer apps than the limit, so a miss isn't ">200"."""
+    r = rank(results, app_id)
+    return NOT_FOUND if r.startswith(">") else r
+
+
 def ahead(results, app_id, competitors):
     """Tracked competitors ranked above the app (all of them that rank, if it doesn't)."""
     names = {v: k for k, v in competitors.items()}
@@ -195,22 +206,33 @@ def config(p):
 
 
 def keywords(p, country="us"):
-    """What to rank in a storefront: ASO_KEYWORDS, except in one of the product's ASO_COUNTRIES,
-    where it's the phrases `aso locales` packed into that language's field (English stores reuse
-    ASO_KEYWORDS), cut to COUNTRY_PHRASES."""
+    """What to rank in a storefront: ASO_KEYWORDS, except where the app's own language is on the
+    store, where it's the phrases `aso locales` packed into that language's field (English stores
+    reuse ASO_KEYWORDS), cut to COUNTRY_PHRASES."""
     from . import aso_locales  # it imports this module
     english = p.need("ASO_KEYWORDS")
-    if country not in (p.get("ASO_COUNTRIES") or []):
+    if country == "us":
         return english
     if not localized(p, country):
-        return english[:COUNTRY_PHRASES]
+        return english[:COUNTRY_PHRASES] if country in countries(p) else english
     return aso_locales.targeted(p, aso_locales.locale_for(country), COUNTRY_PHRASES)
 
 
 def localized(p, country):
-    from . import aso_locales
+    """Whether the storefront's language isn't English and the app's field for it is on the store."""
+    from . import aso_export, aso_locales
     locale = aso_locales.locale_for(country)
-    return country in (p.get("ASO_COUNTRIES") or []) and bool(locale) and not locale.startswith("en-")
+    return bool(locale) and not locale.startswith("en-") and locale in aso_export.pasted(p)
+
+
+def countries(p, wanted=None):
+    """The storefronts to rank besides the US (`wanted`, or the product's ASO_COUNTRIES, or the shared
+    list in settings.py), without those whose language the app doesn't have on the store."""
+    from . import aso_locales
+    from .product import settings
+    asked = wanted if wanted is not None else p.get("ASO_COUNTRIES", getattr(settings, "ASO_COUNTRIES", []))
+    return [c for c in asked if c != "us"
+            and ((aso_locales.locale_for(c) or "").startswith("en-") or localized(p, c))]
 
 
 def check_keyword(term, app_id, competitors, country, cache, with_hints=True):
@@ -227,7 +249,7 @@ def check_keyword(term, app_id, competitors, country, cache, with_hints=True):
     store_rank = rank(store, app_id, STORE_DEPTH)
     return {
         "date": date.today().isoformat(), "country": country, "keyword": term,
-        "store_rank": store_rank, "api_rank": rank(api, app_id, API_LIMIT),
+        "store_rank": store_rank, "api_rank": api_rank(api, app_id),
         "popularity": str(popularity(typed)) if with_hints else "", "typed": str(typed or "") if with_hints else "",
         "difficulty": str(level), "top10_median_ratings": str(median),
         "leader": names.get(leader.get("id"), leader.get("name", "")),
@@ -259,9 +281,18 @@ def check(p, country="us", only=None, with_hints=True, save=True):
     return rows
 
 
+def saved(p):
+    """Every saved row. Rows from before 2026-11-24 say ">200" for what is now "not found"."""
+    _, rows = tsv.read(tsv_path(p))
+    for r in rows:
+        if r["api_rank"] == ">200":
+            r["api_rank"] = NOT_FOUND
+    return rows
+
+
 def latest(p, country="us", before=None):
     """The newest saved row per keyword, optionally from before a date."""
-    _, rows = tsv.read(tsv_path(p))
+    rows = saved(p)
     out = {}
     for r in rows:
         if r["country"] == country and (before is None or r["date"] < before):
@@ -315,10 +346,10 @@ def best(r):
 
 
 def summary(p):
-    """One line per storefront (the US, then ASO_COUNTRIES): phrases in the top 10 and 50,
+    """One line per storefront (the US, then countries(p)): phrases in the top 10 and 50,
     ranked at all, unranked, and how many moved since the check before."""
     lines = [["country", "date", "phrases", "top10", "top50", "ranked", "unranked", "moved"]]
-    for country in ["us"] + [c for c in p.get("ASO_COUNTRIES") or [] if c != "us"]:
+    for country in ["us"] + countries(p):
         now = latest(p, country)
         if not now:
             lines.append([country, "no check yet"])
@@ -340,6 +371,32 @@ def summary(p):
         "  ".join(str(c).ljust(w) for c, w in zip(line, widths)).rstrip() for line in lines)
 
 
+def rankings(p, week=7, window=2):
+    """Every phrase ranked within `window` days of its storefront's newest check (so a check
+    of a few phrases hides none, and a dropped phrase goes), with the newest check at least
+    `week` days before it. The dashboard's Keywords tab."""
+    rows = saved(p)
+    history, newest = {}, {}
+    for r in rows:
+        history.setdefault((r["country"], r["keyword"]), []).append(r)
+        newest[r["country"]] = max(newest.get(r["country"], ""), r["date"])
+    out = []
+    for (country, keyword), past in history.items():
+        now = max(reversed(past), key=lambda r: r["date"])  # a second check that day wins
+        day = date.fromisoformat(now["date"])
+        if day < date.fromisoformat(newest[country]) - timedelta(window):
+            continue
+        before = [r for r in past if r["date"] <= (day - timedelta(week)).isoformat()]
+        was = max(reversed(before), key=lambda r: r["date"]) if before else {}
+        number = lambda k: int(now[k]) if (now.get(k) or "").isdigit() else None
+        out.append({"country": country, "keyword": keyword, "date": now["date"],
+                    "store": now["store_rank"], "api": now["api_rank"],
+                    "was_store": was.get("store_rank", ""), "was_api": was.get("api_rank", ""),
+                    "was_date": was.get("date", ""), "pop": number("popularity"),
+                    "diff": number("difficulty"), "leader": now["leader"]})
+    return out
+
+
 def top(p, term, country="us", depth=20):
     """Who holds a keyword: the store's top 12 and the API's top `depth`, with ratings."""
     app_id, _, competitors = config(p)
@@ -356,7 +413,7 @@ def top(p, term, country="us", depth=20):
     for i, r in enumerate(api[:depth], 1):
         mark = "  <-" if r["id"] in tracked else ""
         print(f"  {i:2}. {r['name']}  ({r['ratings']} ratings, ${r['price']}){mark}")
-    print(f"  {p.title}: store {rank(store, app_id, STORE_DEPTH)}, API {rank(api, app_id, API_LIMIT)}")
+    print(f"  {p.title}: store {rank(store, app_id, STORE_DEPTH)}, API {api_rank(api, app_id)}")
 
 
 def suggest(p, seed, country="us", ranked=False):
@@ -371,7 +428,7 @@ def suggest(p, seed, country="us", ranked=False):
     for term in found:
         note = "tracked" if term in tracked else ""
         if ranked:
-            note = f"API {rank(api_search(term, country), app_id, API_LIMIT)}  {note}"
+            note = f"API {api_rank(api_search(term, country), app_id)}  {note}"
         print(f"  {term}  {note}".rstrip())
 
 

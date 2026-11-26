@@ -20,11 +20,15 @@ isn't a close. The page polls `/state` every few seconds, so drafts a pass write
 it opened show up on their own, and a line at the top says what is still looking
 (see looking.py). Threads has no feed to read without the API token, so those get
 checked on your Threads account's Replies tab and marked with `leads threads-posted`.
+
+Ask for a change takes a note on a card; a headless Claude redrafts the reply and the
+card shows it as tracked changes with Put back (see changes.py). Closing the tab waits
+for one under way.
 """
-import html, http.server, json, re, subprocess, sys, tempfile, threading
+import hashlib, html, http.server, json, re, subprocess, sys, tempfile, threading
 from datetime import date
 
-from . import looking, product, reddit, threadspage, tsv, x
+from . import changes, looking, product, reddit, threadspage, tsv, x
 
 PLATFORMS = ("Reddit", "Threads", "X")
 SKIP_NOTE = "Skipped on the drafts page."
@@ -77,12 +81,24 @@ def pitched(products):
     return seen
 
 
+def too_long(r, text):
+    """Why the platform won't take this text, or None."""
+    if r["platform"] == "Threads" and len(text) > THREADS_LIMIT:
+        return f"{len(text)} characters, over Threads' {THREADS_LIMIT}."
+    if r["platform"] == "X" and x.length(text) > x.LIMIT:
+        return f"{x.length(text)} characters (links count 23), over X's {x.LIMIT}."
+
+
+def limit(r):
+    return {"Threads": THREADS_LIMIT, "X": x.LIMIT}.get(r["platform"])
+
+
+def find(p, platform, url):
+    return next((r for r in load([p]) if r["platform"] == platform and r["url"] == url), None)
+
+
 def warnings(r, already):
-    out = []
-    if r["platform"] == "Threads" and len(r["reply_text"]) > THREADS_LIMIT:
-        out.append(f"{len(r['reply_text'])} characters, over Threads' {THREADS_LIMIT}.")
-    if r["platform"] == "X" and x.length(r["reply_text"]) > x.LIMIT:
-        out.append(f"{x.length(r['reply_text'])} characters (links count 23), over X's {x.LIMIT}.")
+    out = [w for w in [too_long(r, r["reply_text"])] if w]
     if (r["platform"], handle(r.get("author"))) in already:
         out.append(f"Already replied to @{handle(r.get('author'))} before.")
     return out
@@ -213,7 +229,7 @@ def key(r):
     return f"{r['product']}|{r['platform']}|{r['url']}"
 
 
-def card(r, apps):
+def card(r, apps, change=None):
     e = lambda s: html.escape(s or "")
     title = r.get("title") or r.get("author") and f"@{r['author']}" or r["url"]
     # An app-thread reply is the pitch itself, so the card says which kind it is.
@@ -229,12 +245,25 @@ def card(r, apps):
         f'<button type="button" class="reason">{e(x)}</button>' for x in SKIP_REASONS) + (
         f'<form class="own"><input name="reason" maxlength="{REASON_LIMIT}" placeholder="Or your own reason">'
         '<button type="submit">Save</button></form></span>')
-    return f"""<article data-product="{e(r['product'])}" data-platform="{e(r['platform'])}" data-url="{e(r['url'])}">
-  <header><a href="{e(r['url'])}" target="_blank" rel="noopener">{e(title)}</a><span class="meta">{e(meta)}</span></header>
+    asked, tracked = changes.block(r, change)
+    ask = '<button type="button" class="ask">Ask for a change</button>'
+    if tracked:
+        ask = '<button type="button" class="ask">Ask for another change</button><button type="button" class="put-back">Put back</button>'
+    # Copy takes the hidden pre, so tracked changes never reach the clipboard.
+    shown = f'<div class="reply tracked">{tracked}</div>' if tracked else ""
+    working = ' class="working"' if (change or {}).get("status") == "working" else ""
+    body = f"""<header><a href="{e(r['url'])}" target="_blank" rel="noopener">{e(title)}</a><span class="meta">{e(meta)}</span></header>
   {"".join(f'<p class="warn">{e(w)}</p>' for w in r.get("warnings", []))}
   <p class="notes">{e(r.get('notes'))}</p>
-  <pre class="reply"{rich_attr}>{e(r['reply_text'])}</pre>
-  <div class="actions">{post_reply}<button type="button" class="copy">Copy reply</button><button type="button" class="replied">Already replied</button><button type="button" class="skip">Skip</button>{reasons}</div>
+  {asked}{shown}
+  <pre class="reply"{rich_attr}{" hidden" if tracked else ""}>{e(r['reply_text'])}</pre>
+  <form class="change" hidden><label>What should change?<textarea name="note" rows="3" maxlength="{changes.NOTE_LIMIT}" placeholder="Say what's wrong, so the next draft fixes it"></textarea></label>
+    <div class="actions"><button type="submit">Ask Claude</button><button type="button" class="cancel">Cancel</button><span class="error" role="alert"></span></div></form>
+  <div class="actions main">{post_reply}<button type="button" class="copy">Copy reply</button>{ask}<button type="button" class="replied">Already replied</button><button type="button" class="skip">Skip</button>{reasons}</div>"""
+    # The open page swaps in a card whose revision changed.
+    rev = hashlib.sha1((body + working).encode()).hexdigest()[:12]
+    return f"""<article{working} data-rev="{rev}" data-product="{e(r['product'])}" data-platform="{e(r['platform'])}" data-url="{e(r['url'])}">
+  {body}
 </article>"""
 
 
@@ -255,7 +284,7 @@ header a:hover {{ color:var(--accent); text-decoration:underline; }}
 .notes {{ color:var(--muted); font-size:13.5px; margin:10px 0; }}
 .notes a {{ color:var(--accent); }}
 .warn {{ color:var(--warn); font-weight:600; font-size:13.5px; margin:10px 0 0; }}
-.reply {{ white-space:pre-wrap; font:inherit; background:var(--bg); border-radius:8px; padding:12px 14px; margin:0 0 12px; }}
+.reply {{ white-space:pre-wrap; overflow-wrap:anywhere; font:inherit; background:var(--bg); border-radius:8px; padding:12px 14px; margin:0 0 12px; }}
 button {{ font:inherit; font-size:14px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:7px; padding:6px 14px; cursor:pointer; }}
 button.done {{ color:var(--accent); border-color:var(--accent); }}
 .actions {{ display:flex; gap:8px; flex-wrap:wrap; }}
@@ -271,6 +300,22 @@ button.reason {{ font-size:13px; padding:3px 10px; }}
 form.own {{ display:flex; gap:6px; flex-basis:100%; max-width:480px; margin:0; }}
 form.own input {{ flex:1; min-width:0; font:inherit; font-size:13px; padding:3px 8px; border:1px solid var(--line); border-radius:7px; background:var(--bg); color:var(--ink); }}
 form.own button {{ font-size:13px; padding:3px 10px; }}
+[hidden] {{ display:none !important; }}
+article.skipped .ask, article.skipped .put-back, article.replied .ask, article.replied .put-back,
+article.posted .ask, article.posted .put-back, article.working .ask, article.working .put-back,
+article.working .copy, article.working .post-reply {{ display:none; }}
+.asked {{ font-size:14px; margin:0 0 10px; }}
+.state {{ color:var(--muted); display:flex; gap:8px; align-items:center; }}
+.asked + .warn {{ margin:0 0 10px; }}
+.tracked ins {{ color:var(--accent); font-weight:700; text-decoration:none; }}
+.tracked del {{ color:var(--warn); }}
+.tracked del + ins {{ margin-left:3px; }}
+form.change {{ margin:0; }}
+form.change label {{ display:block; font-size:14px; }}
+form.change textarea {{ box-sizing:border-box; display:block; width:100%; margin:6px 0 12px; padding:9px 12px; font:inherit; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:7px; resize:vertical; }}
+form.change .actions {{ align-items:center; }}
+form.change [type=submit] {{ background:var(--ink); border-color:var(--ink); color:var(--card); }}
+.error {{ color:var(--warn); font-size:14px; }}
 button.post-reply {{ background:var(--accent); border-color:var(--accent); color:#fff; }}
 article.posted {{ opacity:.6; }}
 nav a {{ color:var(--accent); }}
@@ -298,10 +343,10 @@ const cards = document.getElementById("cards");
 const cardKey = a => a.dataset.product + "|" + a.dataset.platform + "|" + a.dataset.url;
 const lead = card => JSON.stringify({{ product: card.dataset.product, platform: card.dataset.platform, url: card.dataset.url }});
 // The saved file has no server to write the TSV.
-function fit(root) {{ if (!live) for (const b of root.querySelectorAll("button.skip, button.replied, button.post-reply")) b.remove(); }}
+function fit(root) {{ if (!live) for (const b of root.querySelectorAll("button.skip, button.replied, button.post-reply, button.ask")) b.remove(); }}
 fit(document);
 async function copy(b, card) {{
-  const reply = card.querySelector(".reply"), text = reply.textContent, rich = reply.dataset.html;
+  const reply = card.querySelector("pre.reply"), text = reply.textContent, rich = reply.dataset.html;
   try {{
     // Both flavours: a rich-text box takes the links, a Markdown box the text.
     if (rich) await navigator.clipboard.write([new ClipboardItem({{
@@ -340,10 +385,27 @@ async function postReply(b, card) {{
   card.classList.add("posted"); b.remove();
   card.querySelector(".notes").innerHTML = `Posted: <a href="${{out.permalink}}" target="_blank" rel="noopener">${{out.permalink}}</a>`;
 }}
+function compose(card, on) {{
+  const f = card.querySelector("form.change");
+  f.hidden = !on; card.querySelector(".actions.main").hidden = on;
+  if (on) f.note.focus();
+}}
+async function change(path, card, extra) {{
+  const res = await fetch(path, {{ method: "POST", headers: {{ "X-Leadkit": "1" }},
+    body: JSON.stringify({{ ...JSON.parse(lead(card)), ...extra }}) }}).catch(() => null);
+  if (res && res.ok) await refresh();
+  return !!(res && res.ok);
+}}
 // One listener for every card, so cards that arrive later work the same.
 document.addEventListener("click", async ev => {{
   const b = ev.target.closest("button"), card = b && b.closest("article");
   if (!card || b.closest("form.own")) return;
+  if (b.classList.contains("ask")) return compose(card, true);
+  if (b.classList.contains("cancel")) return compose(card, false);
+  if (b.classList.contains("put-back")) {{
+    if (!await change("/unchange", card)) b.textContent = "Couldn't save, try again";
+    return;
+  }}
   if (b.classList.contains("copy")) return copy(b, card);
   if (b.classList.contains("post-reply")) return postReply(b, card);
   if (b.classList.contains("skip")) {{
@@ -363,6 +425,17 @@ document.addEventListener("input", ev => {{
   if (f) {{ const b = f.querySelector("button"); b.textContent = "Save"; b.classList.remove("done"); }}
 }});
 document.addEventListener("submit", async ev => {{
+  const c = ev.target.closest("form.change");
+  if (c) {{
+    ev.preventDefault();
+    const send = c.querySelector("[type=submit]"), error = c.querySelector(".error");
+    if (!c.note.value.trim()) {{ error.textContent = "Say what should change first."; return c.note.focus(); }}
+    send.disabled = true; c.hidden = true;  // so the working card can take its place
+    if (!await change("/change", c.closest("article"), {{ note: c.note.value }})) {{
+      send.disabled = false; c.hidden = false; error.textContent = "Couldn't send it. Your note is still here.";
+    }}
+    return;
+  }}
   const f = ev.target.closest("form.own");
   if (!f) return;
   ev.preventDefault();
@@ -373,7 +446,10 @@ document.addEventListener("submit", async ev => {{
   b.textContent = "Saved"; b.classList.add("done");
 }});
 // New drafts arrive while a pass is still looking. They go in at their place in the
-// order, marked New, and nothing already on the page moves or loses its state.
+// order, marked New, and nothing already on the page moves or loses its state. A card
+// whose draft changed is swapped in place, unless you're partway through it.
+const busy = a => a.matches(".skipped, .replied, .posted") || a.querySelector("form.change:not([hidden]), [data-armed]") ||
+  [...a.querySelectorAll(".actions.main button")].some(b => b.disabled);
 const lookingLine = document.getElementById("looking");
 let wasLooking = !lookingLine.hidden;
 function apply(s) {{
@@ -388,6 +464,13 @@ function apply(s) {{
       fit(a);
       if (prev) prev.after(a); else cards.prepend(a);
       document.getElementById("empty")?.remove();
+    }} else {{
+      const t = document.createElement("template"); t.innerHTML = html.trim(); const n = t.content.firstElementChild;
+      if (n.dataset.rev !== a.dataset.rev && !busy(a)) {{
+        const tag = a.querySelector(".newtag");
+        if (tag) {{ n.classList.add("new"); n.querySelector("header a").after(tag); }}
+        fit(n); a.replaceWith(n); a = n;
+      }}
     }}
     prev = a;
   }}
@@ -402,9 +485,12 @@ function apply(s) {{
     what.textContent = "Done looking.";
   }}
 }}
-async function poll() {{
+async function refresh() {{
   const res = await fetch("/state", {{ cache: "no-store" }}).catch(() => null);
   if (res && res.ok) apply(await res.json());
+}}
+async function poll() {{
+  await refresh();
   setTimeout(poll, 3000);
 }}
 if (live) {{ setTimeout(poll, 3000); addEventListener("pagehide", () => navigator.sendBeacon("/closed")); }}
@@ -429,7 +515,7 @@ def looking_line(labels):
     return f"Still looking: {' · '.join(labels)}. New drafts appear here as they're written." if labels else ""
 
 
-def render(products, live=True, warned=None):
+def render(products, live=True, warned=None, asked=None):
     for p in products:
         expire(p)
     rows = checked(load(products, pitched_from=product.everything()), warned)
@@ -441,23 +527,23 @@ def render(products, live=True, warned=None):
     page = PAGE.format(title=f"{' + '.join(apps)} reply drafts", count=len(rows), today=date.today().isoformat(),
                        footer=footer, nav=nav, looking=html.escape(looking_line(labels)),
                        looking_hidden="" if labels else " hidden",
-                       cards="\n".join(card(r, apps) for r in rows) or empty)
+                       cards="\n".join(card(r, apps, asked and asked.get(key(r))) for r in rows) or empty)
     return rows, page
 
 
-def state(products, warned=None):
+def state(products, warned=None, asked=None):
     """What the open page polls for: every open draft as [key, card HTML] in page
     order, the count, and what is still looking. No expiry here; that runs on load."""
     rows = checked(load(products, pitched_from=product.everything()), warned)
     apps = [p.title for p in products]
-    return {"cards": [[key(r), card(r, apps)] for r in rows], "count": len(rows),
+    return {"cards": [[key(r), card(r, apps, asked and asked.get(key(r)))] for r in rows], "count": len(rows),
             "looking": looking.current(products, titled=len(products) > 1)}
 
 
 # A reload fires the close beacon and then loads again at once; wait this long
 # for that load before treating the beacon as the tab closing.
 RELOAD_GRACE = 3.0
-EDITS = ("/skip", "/unskip", "/skip-reason", "/replied", "/unreplied")
+EDITS = ("/skip", "/unskip", "/skip-reason", "/replied", "/unreplied", "/change", "/unchange")
 
 
 def serve(products, open_browser=True, keep=False, port=0, page="drafts"):
@@ -467,8 +553,12 @@ def serve(products, open_browser=True, keep=False, port=0, page="drafts"):
     closed = threading.Event()
     live = {"pending": None}
     warned = set()
+    asked = changes.Changes(find, too_long, limit)
 
     def on_close():
+        asked.wait()
+        if live["pending"] is not threading.current_thread():
+            return  # opened again while a change finished
         live["pending"] = None
         sync(products)
         print("closed", flush=True)
@@ -498,9 +588,9 @@ def serve(products, open_browser=True, keep=False, port=0, page="drafts"):
             if self.threads_route("GET"):
                 return
             if self.path == "/state":
-                body, kind = json.dumps(state(products, warned)).encode(), "application/json"
+                body, kind = json.dumps(state(products, warned, asked)).encode(), "application/json"
             else:
-                body, kind = render(products, warned=warned)[1].encode(), "text/html; charset=utf-8"
+                body, kind = render(products, warned=warned, asked=asked)[1].encode(), "text/html; charset=utf-8"
             self.send_response(200)
             self.send_header("Content-Type", kind)
             self.send_header("Cache-Control", "no-store")
@@ -519,7 +609,13 @@ def serve(products, open_browser=True, keep=False, port=0, page="drafts"):
                     if lead["platform"] not in PLATFORMS:
                         raise KeyError(lead["platform"])
                     # Only a row that's on the page (or was skipped from it) can change.
-                    if self.path == "/skip-reason":
+                    if self.path in ("/change", "/unchange"):
+                        # Starts a Claude run, so only this page may ask, not a site he visits.
+                        if self.headers.get("X-Leadkit") != "1":
+                            raise KeyError("X-Leadkit")
+                        at = (p, lead["platform"], lead["url"])
+                        changed = asked.start(*at, lead["note"]) if self.path == "/change" else asked.put_back(*at)
+                    elif self.path == "/skip-reason":
                         reason = clean_reason(lead["reason"])
                         if not reason:
                             raise KeyError(lead["reason"])

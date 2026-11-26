@@ -184,7 +184,7 @@ class RepliedTest(unittest.TestCase):
         self.assertIn('class="replied"', drafts.card(row, ["Knitwit"]))
 
 
-class ServeTest(unittest.TestCase):
+class ServerCase(unittest.TestCase):
     """The server against a temp product, with sync stubbed so nothing reaches Reddit."""
 
     def setUp(self):
@@ -222,6 +222,11 @@ class ServeTest(unittest.TestCase):
         with urllib.request.urlopen(urllib.request.Request(url, data=data)) as r:
             return r.status, r.read()
 
+    def state(self):
+        return json.loads(self.call("/state")[1])
+
+
+class ServeTest(ServerCase):
     def test_page_lists_the_draft_and_skip_writes_the_tsv(self):
         status, page = self.call("/")
         self.assertIn(b"https://r/1", page)
@@ -263,9 +268,6 @@ class ServeTest(unittest.TestCase):
         self.assertEqual(len(self.synced), 1)
         self.assertFalse(self.thread.is_alive())
 
-    def state(self):
-        return json.loads(self.call("/state")[1])
-
     def test_state_streams_a_draft_added_after_the_page_loaded(self):
         self.call("/")
         self.t.write("Reddit", [{"url": "https://r/1", "reply": "x", "status": "draft", "found": ago(0)},
@@ -297,6 +299,134 @@ class ServeTest(unittest.TestCase):
             self.call("/skip", {"product": "knitwit", "platform": "Reddit", "url": "https://elsewhere"})
         self.call("/closed", {})
         self.thread.join(5)
+
+
+class ChangeTest(ServerCase):
+    """Ask for a change, with Claude stubbed."""
+    LEAD = {"product": "knitwit", "platform": "Reddit", "url": "https://r/1"}
+
+    def setUp(self):
+        self.prompts, self.go, self.answers = [], threading.Event(), []
+        self.go.set()
+
+        def ask(text, p):
+            self.prompts.append(text)
+            self.go.wait(5)
+            return {"reply": f"new {len(self.prompts)}", "checked": "the code", "problem": ""} | (
+                self.answers.pop(0) if self.answers else {})
+        for name, stub in (("ask_claude", ask), ("thread_text", lambda r: "")):
+            patch = mock.patch.object(drafts.changes, name, stub)
+            patch.start()
+            self.addCleanup(patch.stop)
+        super().setUp()
+
+    def post(self, path, headers=None, **extra):
+        url = f"http://127.0.0.1:{self.server.server_port}{path}"
+        req = urllib.request.Request(url, data=json.dumps({**self.LEAD, **extra}).encode(),
+                                     headers={"X-Leadkit": "1"} if headers is None else headers)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status
+        except urllib.error.HTTPError as err:
+            err.close()
+            return err.code
+
+    def change(self, note):
+        self.assertEqual(self.post("/change", note=note), 204)
+        for _ in range(300):
+            html = self.state()["cards"][0][1]
+            if 'class="working"' not in html:
+                return html
+            time.sleep(0.01)
+        self.fail("still working")
+
+    def row(self):
+        return self.t.read("Reddit")[0]
+
+    def finish(self):
+        self.call("/closed", {})
+        self.thread.join(5)
+
+    def test_a_change_is_written_shown_and_put_back(self):
+        html = self.change("say more")
+        self.assertIn("<del>x</del><ins>new 1</ins>", html)
+        self.assertIn("Checked against: the code", html)
+        self.assertEqual((self.row()["reply"], self.row()["status"]), ("new 1", "draft"))
+        self.assertIn("Asked on the drafts page: say more", self.row()["notes"])
+        self.post("/unchange")
+        self.assertEqual(self.row()["reply"], "x")
+        self.assertNotIn("<del>", self.state()["cards"][0][1])
+        self.finish()
+
+    def test_another_change_carries_the_notes_and_put_back_goes_to_the_first(self):
+        self.change("say more")
+        self.change("warmer")
+        self.assertIn("1. say more\n2. warmer", self.prompts[1])
+        self.assertIn("new 1", self.prompts[1])
+        self.post("/unchange")
+        self.assertEqual(self.row()["reply"], "x")
+        self.finish()
+
+    def test_a_problem_leaves_the_draft(self):
+        self.answers = [{"problem": "The app has no <drums>."}]
+        self.assertIn("Not changed: The app has no &lt;drums&gt;.", self.change("mention drums"))
+        self.assertEqual(self.row()["reply"], "x")
+        self.finish()
+
+    def test_a_row_skipped_meanwhile_is_not_overwritten(self):
+        self.go.clear()
+        self.post("/change", note="say more")
+        self.assertEqual(self.post("/change", note="again"), 400)
+        self.post("/skip")
+        self.go.set()
+        self.finish()
+        self.assertEqual((self.row()["reply"], self.row()["status"]), ("x", "skip"))
+
+    def test_closing_waits_for_a_change_under_way(self):
+        self.go.clear()
+        self.post("/change", note="say more")
+        self.call("/closed", {})
+        time.sleep(0.6)
+        self.assertTrue(self.thread.is_alive())
+        self.assertEqual(self.synced, [])
+        self.go.set()
+        self.thread.join(5)
+        self.assertEqual(self.row()["reply"], "new 1")
+        self.assertEqual(len(self.synced), 1)
+
+    def test_opening_again_during_that_wait_keeps_the_page(self):
+        self.go.clear()
+        self.post("/change", note="say more")
+        self.call("/closed", {})
+        time.sleep(0.6)
+        self.call("/")
+        self.go.set()
+        time.sleep(0.5)
+        self.assertTrue(self.thread.is_alive())
+        self.finish()
+
+    def test_bad_requests_start_nothing(self):
+        self.assertEqual(self.post("/change", note="  "), 400)
+        self.assertEqual(self.post("/change", note="x", url="https://elsewhere"), 400)
+        self.assertEqual(self.post("/change", note="x", headers={}), 400)
+        self.assertEqual(self.post("/unchange"), 400)
+        self.assertEqual(self.prompts, [])
+        self.finish()
+
+
+class ChangeLimitTest(unittest.TestCase):
+    def test_over_the_limit_gets_one_more_try(self):
+        t = TempProduct()
+        self.addCleanup(t.close)
+        t.write("Threads", [{"url": "https://t/1", "reply": "x", "status": "draft", "found": ago(0)}])
+        for last, want in (("y" * 600, "x"), ("short", "short")):
+            answers = ["z" * 600, last]
+            c = drafts.changes.Changes(drafts.find, drafts.too_long, drafts.limit,
+                                       ask=lambda text, p: {"reply": answers.pop(0), "checked": "", "problem": ""},
+                                       thread=lambda r: "")
+            self.assertTrue(c.start(t.p, "Threads", "https://t/1", "longer"))
+            c.wait()
+            self.assertEqual(t.read("Threads")[0]["reply"], want)
 
 
 class RichCopyTest(unittest.TestCase):

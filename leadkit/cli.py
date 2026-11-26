@@ -7,6 +7,7 @@ anywhere else. `leads drafts --all` puts every product's drafts on one page.
     leads drafts --all               # every product on one page
     leads drafts --no-open           # write the page to a file and print where
     leads drafts --keep              # sync on every close and keep serving
+    leads apps                       # the ready-made reply naming every live app, as a page to copy from
     leads looking "Reading r/Baking threads"  # the drafts page shows it's still looking (20 min)
     leads looking --done             # the pass has finished looking
     leads reddit                     # mark posted, then find new Reddit leads
@@ -26,6 +27,9 @@ anywhere else. `leads drafts --all` puts every product's drafts on one page.
     leads set URL --add kind=domain notes="From F5Bot"  # log a thread that isn't in the file yet
     leads set URL query="drop your app"   # record which search found a Threads or X lead
     leads threads-searches --js | --replies-js | --attach-js
+    leads threads-feed               # how to read the For You / Following feed in Chrome
+    leads threads-feed --js          # scrolls the feed tab and gathers posts there (run with await, repeat)
+    leads threads-feed receive [--all] [--hours 48]   # takes what the tab gathered, lists posts not seen before
     leads threads-posted [URL ...]   # mark Threads rows posted (or pairs on stdin)
     leads threads-api [--dry-run]    # the official keyword_search watcher (needs a token)
     leads threads-login [REDIRECT]   # sign in to Threads for a token with every scope
@@ -60,7 +64,7 @@ import argparse, json, os, sys, tempfile
 from datetime import date
 from pathlib import Path
 
-from . import analytics, arctic, comments, dashboard, drafts, kinds, looking, mlog, pitches, product, reddit, posts, rows, setup, stats, study, threads, threadsapi, tsv, x, yields
+from . import allapps, analytics, arctic, comments, dashboard, drafts, feed, kinds, looking, mlog, pitches, product, reddit, posts, rows, setup, stats, study, threads, threadsapi, tsv, x, yields
 
 
 def main(argv=None):
@@ -83,6 +87,9 @@ def main(argv=None):
     d.add_argument("--all", action="store_true", help="every product on one page")
     d.add_argument("--no-open", action="store_true", help="write the page to a file instead of serving it")
     d.add_argument("--keep", action="store_true", help="keep serving after the tab closes")
+
+    aa = sub.add_parser("apps", help="the reply that names every live app")
+    aa.add_argument("--no-open", action="store_true", help="write the page without opening Chrome")
 
     lk = sub.add_parser("looking", help="tell the open drafts page what the pass is still doing")
     lk.add_argument("what", nargs="?", help="a few words, shown on the page for 20 minutes unless renewed")
@@ -117,6 +124,13 @@ def main(argv=None):
     t.add_argument("--js", action="store_true", help="print the results extractor")
     t.add_argument("--replies-js", action="store_true", help="print the posted-replies reader")
     t.add_argument("--attach-js", action="store_true", help="print the media attach helper")
+
+    fd = sub.add_parser("threads-feed", help="read the Threads home feed through Chrome")
+    fd.add_argument("what", nargs="?", choices=["receive", "report"])
+    fd.add_argument("files", nargs="*", help="report: feed dumps to list again")
+    fd.add_argument("--js", action="store_true", help="print the scroll-and-gather script")
+    fd.add_argument("--all", action="store_true", help="also list posts seen before and old ones")
+    fd.add_argument("--hours", type=float, default=48, help="leave out posts older than this")
 
     m = sub.add_parser("threads-posted", help="mark Threads rows posted")
     m.add_argument("items", nargs="*", help="post URLs; with none, read 'parent reply' pairs from stdin")
@@ -280,6 +294,8 @@ def main(argv=None):
         for p in product.everything():
             print(f"{p.name:10} {p.title:10} {p.repo}  leads: {p.leads}")
         return
+    if args.cmd == "apps":
+        return allapps.run(not args.no_open)
     if args.cmd == "drafts":
         products = product.everything() if args.all else [product.pick(args.product)]
         # Check lengths before a tab opens. If the warning only shows on the page,
@@ -313,6 +329,18 @@ def main(argv=None):
                 arctic.show_thread(url)
             except arctic.Error as err:
                 print(f"{url}: {err}", file=sys.stderr)
+        return
+    if args.cmd == "threads-feed":  # the same feed for every app, so no product
+        if args.js:
+            return print(feed.FEED_JS)
+        if not args.what:
+            return print("\n".join(feed.guide()))
+        paths = ((args.files or sorted(feed.OUT.glob("feed-*.json"), key=lambda f: f.stat().st_mtime)[-1:])
+                 if args.what == "report" else [feed.receive()])
+        if not all(paths):
+            raise SystemExit("nothing received")
+        for path in paths:
+            print("\n".join(feed.report(path, everything=args.all, max_hours=args.hours)))
         return
     if args.cmd == "threads-searches" and (args.js or args.replies_js):
         return print(threads.EXTRACT_JS if args.js else threads.replies_js())

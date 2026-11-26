@@ -6,3 +6,4 @@ THREADS_ACCOUNT = "mythreadshandle"
 THREADS_APP_ID = "1234567890"
 THREADS_REDIRECT = "https://example.com/threads/callback/"
 CONTACT = "u/mydevaccount"
+ASO_COUNTRIES = ["fr", "de", "au"]

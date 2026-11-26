@@ -207,6 +207,9 @@ def sync_everything(log=print):
     log("Sales and posts (leads log sync)...")
     for line in mlog.sync(14):
         log(line)
+    from . import eastern, product
+    for line in eastern.sync([p.title for p in product.everything()]):
+        log(line)
     from . import ratings
     log("Ratings (App Store and Google Play)...")
     for e in ratings.fetch(apps(), play=ratings.play_ratings).get("errors", []):
@@ -216,10 +219,10 @@ def sync_everything(log=print):
 
 def scheduled(day=None):
     """What the daily job runs: sync everything, commit what changed (no push)."""
-    from . import aso_cli, mlog
+    from . import aso_cli, eastern, mlog
     sync_everything()
     day = day or datetime.now().date().isoformat()
-    aso_cli.commit_ranks(product.DATA, [RAW, mlog.SALES, mlog.POSTS, mlog.DIR / "ratings.json"], day, message=f"analytics: daily sync {day}")
+    aso_cli.commit_ranks(product.DATA, [RAW, mlog.SALES, eastern.HOURS, mlog.POSTS, mlog.DIR / "ratings.json"], day, message=f"analytics: daily sync {day}")
 
 
 def job_plist(hour, minute, home, python, log):

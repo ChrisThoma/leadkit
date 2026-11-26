@@ -2,17 +2,19 @@
 
 Run inside an app repo and the product is picked from it; pass -p/--product
 anywhere else. A product takes part once its config.py has APP_STORE_ID and
-ASO_KEYWORDS (ASO_COMPETITORS is optional). ASO_COUNTRIES = ["de", "jp"] adds
-those storefronts to `check --all`, each with its own language's phrases.
+ASO_KEYWORDS (ASO_COMPETITORS is optional). `check --all` ranks every product in the
+US and the storefronts in settings.py's ASO_COUNTRIES, each with its own language's
+phrases, skipping those whose language a product doesn't have on the store.
 
     aso check                        # rank every keyword, save to aso/ranks.tsv, show what moved
-    aso check --all                  # every product with keywords, then commit the ranks (what the daily run does)
-    aso check -c de                  # one storefront; in an ASO_COUNTRIES one, the phrases aso locales chose there
+    aso check --all                  # every product with keywords, then commit the ranks (over an hour)
+    aso check --all -c fr de         # every product, only those storefronts (a few minutes each)
+    aso check -c de                  # this product in one storefront, with the phrases aso locales chose there
     aso check --only "sourdough timer" --no-hints
-    aso report [-c de]               # the last saved check, no network, plus one line per ASO_COUNTRIES storefront
+    aso report [-c de]               # the last saved check, no network, plus one line per storefront
     aso top "sourdough timer"        # who holds a keyword, with rating counts
     aso suggest sourdough [--ranked] # Apple's suggestions to mine for new keywords
-    aso daily [--at 09:15]           # install the daily launchd check; --off removes it
+    aso daily [--at 09:15]           # optional: a daily launchd `check --all`; --off removes it
     aso locales [--only de-DE ja]    # a keyword field for every App Store language, into aso/locales.md
     aso locales --review             # look every field word up on Wiktionary, into aso/review.md
     aso export [--todo] [--only ja]  # each language's field to paste into App Store Connect
@@ -56,7 +58,7 @@ def commit_ranks(repo, paths, day, message=None):
                                      capture_output=True, text=True).stdout.strip():
         return
     subprocess.run(["git", "-C", str(repo), "add", "--", *rel], check=True)  # a new file isn't tracked yet
-    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", message or f"aso: daily ranks {day}", "--", *rel], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-q", "-m", message or f"aso: ranks {day}", "--", *rel], check=True)
 
 
 def main(argv=None):
@@ -71,12 +73,14 @@ def main(argv=None):
     sub.add_parser = lambda *a, **k: add(*a, parents=[either], **k)
 
     c = sub.add_parser("check", help="rank every keyword and save the result")
+    c.add_argument("-c", "--country", nargs="+", dest="countries", metavar="CC", help="only these storefronts")
     c.add_argument("--all", action="store_true", help="every product with ASO_KEYWORDS")
     c.add_argument("--only", nargs="+", help="these keywords instead of the product's list")
     c.add_argument("--no-hints", action="store_true", help="skip the popularity lookups (faster)")
     c.add_argument("--dry-run", action="store_true", help="print, don't save")
 
-    sub.add_parser("report", help="the last saved check")
+    r = sub.add_parser("report", help="the last saved check")
+    r.add_argument("-c", "--country", default=argparse.SUPPRESS, help="storefront")
 
     t = sub.add_parser("top", help="who holds a keyword")
     t.add_argument("keyword")
@@ -109,24 +113,31 @@ def main(argv=None):
     if args.cmd == "daily":
         return daily(args.at, args.off)
     if args.cmd == "check" and args.all:
+        # -c names storefronts; without it, the US and every storefront the app has a language for.
+        asked = args.countries or ([args.country] if args.country != "us" else None)
         checked = [p for p in product.everything() if p.get("ASO_KEYWORDS")]
-        for p in checked:
-            aso.check(p, args.country, with_hints=not args.no_hints, save=not args.dry_run)
-            if args.country == "us" and p.get("ASO_COUNTRIES"):
-                for country in p.get("ASO_COUNTRIES"):
-                    aso.check(p, country, with_hints=not args.no_hints, save=not args.dry_run)
-                if not args.dry_run:
-                    print(aso.summary(p))
+        runs = [(p, (["us"] if asked is None or "us" in asked else []) + aso.countries(p, asked)) for p in checked]
+        total = sum(len(aso.keywords(p, c)) for p, stores in runs for c in stores)
+        print(f"{total} phrases, {total * 4 // 60 + 1} to {total * 7 // 60 + 1} minutes", file=sys.stderr)
+        for p, stores in runs:
+            skipped = [c for c in asked or [] if c not in stores]
+            if skipped:
+                print(f"{p.title}: not ranked in {', '.join(skipped)}, its language isn't recorded as on the store")
+            for country in stores:
+                aso.check(p, country, with_hints=not args.no_hints, save=not args.dry_run)
+            if len(stores) > 1 and not args.dry_run:
+                print(aso.summary(p))
         if not args.dry_run:
             commit_ranks(product.DATA, [aso.tsv_path(p) for p in checked], datetime.date.today().isoformat())
         return
 
     p = product.pick(args.product)
     if args.cmd == "check":
-        aso.check(p, args.country, only=args.only, with_hints=not args.no_hints, save=not args.dry_run)
+        for country in args.countries or [args.country]:
+            aso.check(p, country, only=args.only, with_hints=not args.no_hints, save=not args.dry_run)
     elif args.cmd == "report":
         aso.report(p, args.country)
-        if p.get("ASO_COUNTRIES"):
+        if aso.countries(p):
             print("\n" + aso.summary(p))
     elif args.cmd == "top":
         aso.top(p, args.keyword, args.country, args.depth)
